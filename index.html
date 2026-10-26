@@ -1,0 +1,1519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tickmark</title>
+<meta name="description" content="Check a finished deliverable against its QA checklist. Files are read in your browser; judgment checks run on your own local model.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --paper:#F1F3F6; --sheet:#FFFFFF; --ink:#15202B; --ink-2:#475565; --ink-3:#768392;
+  --rule:#D3DAE2; --rule-2:#E6EBF0;
+  --blue:#1E4DB7; --blue-ink:#FFFFFF; --blue-bg:#E7EDFB;
+  --pass:#1C7849; --pass-bg:#E2F1E8;
+  --fail:#BF2F2A; --fail-bg:#FAE5E3;
+  --review:#A15F00; --review-bg:#FBEED7;
+  --manual:#5B697A; --manual-bg:#E9EDF1;
+  --code-bg:#F1F3F6;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#10151B; --sheet:#171E26; --ink:#E5EAF0; --ink-2:#A3AFBC; --ink-3:#7C8896;
+    --rule:#2B3540; --rule-2:#222B35;
+    --blue:#7EA2FF; --blue-ink:#0E1420; --blue-bg:#1D2A47;
+    --pass:#4FC48C; --pass-bg:#163126;
+    --fail:#FF7B71; --fail-bg:#3A1D1C;
+    --review:#F0B04A; --review-bg:#3A2A12;
+    --manual:#9AA8B8; --manual-bg:#232C36;
+    --code-bg:#10151B;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#10151B; --sheet:#171E26; --ink:#E5EAF0; --ink-2:#A3AFBC; --ink-3:#7C8896;
+  --rule:#2B3540; --rule-2:#222B35;
+  --blue:#7EA2FF; --blue-ink:#0E1420; --blue-bg:#1D2A47;
+  --pass:#4FC48C; --pass-bg:#163126;
+  --fail:#FF7B71; --fail-bg:#3A1D1C;
+  --review:#F0B04A; --review-bg:#3A2A12;
+  --manual:#9AA8B8; --manual-bg:#232C36;
+  --code-bg:#10151B;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:'Archivo',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;font-size:15px;line-height:1.5;font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+[hidden]{display:none!important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* Top bar */
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 24px;background:var(--sheet);border-bottom:1px solid var(--rule)}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.brand svg{width:26px;height:26px;flex:none}
+.brand .word{font-weight:800;font-stretch:125%;font-size:19px;letter-spacing:-.01em}
+.brand .tag{color:var(--ink-3);font-size:13px;border-left:1px solid var(--rule);padding-left:10px;white-space:nowrap}
+.model-pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--rule);background:var(--paper);border-radius:999px;padding:6px 13px;font-size:13px;cursor:pointer;max-width:56vw}
+.model-pill:hover{border-color:var(--blue)}
+.model-pill span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ink-3);flex:none}
+.dot.ok{background:var(--pass)} .dot.err{background:var(--fail)} .dot.off{background:transparent;box-shadow:inset 0 0 0 1.5px var(--ink-3)}
+
+main{max-width:1180px;margin:0 auto;padding:44px 24px 72px}
+.intro h1{font-stretch:115%;font-weight:750;font-size:clamp(28px,4.2vw,46px);line-height:1.04;letter-spacing:-.02em;margin:0 0 14px;max-width:19ch}
+.lede{color:var(--ink-2);max-width:64ch;margin:0 0 30px;font-size:16px}
+.banner{border:1px solid var(--fail);background:var(--fail-bg);color:var(--ink);border-radius:8px;padding:12px 14px;margin:0 0 20px}
+
+/* Setup sheet */
+.setup{display:grid;grid-template-columns:1.05fr 1.25fr .9fr;background:var(--sheet);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+.step{padding:22px 22px 24px;border-right:1px solid var(--rule-2);min-width:0}
+.step:last-child{border-right:0}
+.step-head{display:flex;align-items:baseline;gap:10px;margin-bottom:14px}
+.num{font-stretch:125%;font-weight:800;font-size:28px;line-height:1;color:var(--blue)}
+.step h2{font-size:15px;font-weight:650;margin:0}
+.drop{display:flex;flex-direction:column;gap:2px;border:1.5px dashed var(--rule);border-radius:8px;padding:16px;cursor:pointer;transition:border-color .15s,background-color .15s}
+.drop:hover,.drop.over{border-color:var(--blue);background:var(--blue-bg)}
+.drop:focus-within{outline:2px solid var(--blue);outline-offset:2px}
+.drop strong{font-weight:600}
+.drop span{color:var(--ink-3);font-size:13px}
+.drop input{position:absolute;opacity:0;width:1px;height:1px}
+.drop.compact{padding:10px 14px;flex-direction:row;align-items:baseline;gap:8px;flex-wrap:wrap}
+
+.meta-line{font-size:13px;color:var(--ink-3)}
+.fname{font-weight:600;word-break:break-word}
+.fields{display:grid;gap:10px;margin:14px 0 0}
+.field{display:grid;gap:4px;font-size:13px;color:var(--ink-2)}
+.field select,.field input{width:100%;padding:8px 10px;border:1px solid var(--rule);border-radius:7px;background:var(--sheet)}
+.preview{margin:14px 0 0;padding:0;list-style:none;font-size:13.5px;color:var(--ink-2);border-top:1px solid var(--rule-2)}
+.preview li{padding:7px 0;border-bottom:1px solid var(--rule-2);display:flex;gap:8px}
+.preview li b{font-weight:600;color:var(--ink-3);min-width:2.2em}
+.count{font-weight:650;color:var(--ink)}
+
+.files{list-style:none;margin:12px 0 0;padding:0}
+.files li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--rule-2)}
+.kind{font-size:11.5px;font-weight:650;padding:2px 7px;border-radius:5px;background:var(--paper);color:var(--ink-2);border:1px solid var(--rule);white-space:nowrap;margin-top:1px}
+.kind.excel{color:var(--pass)} .kind.slides{color:var(--review)} .kind.word{color:var(--blue)} .kind.pdf{color:var(--fail)}
+.files .fname{font-size:14px}
+.files .note{font-size:12.5px;color:var(--review)}
+.x{border:0;background:none;color:var(--ink-3);cursor:pointer;padding:2px 6px;border-radius:5px;font-size:18px;line-height:1}
+.x:hover{color:var(--fail);background:var(--fail-bg)}
+
+.plan{list-style:none;margin:0 0 16px;padding:0;font-size:14px}
+.plan li{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--rule-2)}
+.plan li span:last-child{font-weight:650}
+.plan .hint{display:block;border:0;color:var(--ink-3);font-size:12.5px;padding-top:9px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--rule);background:var(--sheet);border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:550;font-size:14px}
+.btn:hover{border-color:var(--blue)}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:var(--blue-ink);font-weight:650;width:100%;padding:12px 16px;font-size:15px}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn[disabled]{opacity:.45;cursor:not-allowed;filter:none}
+.btn.ghost{background:transparent}
+.btn.link{border:0;background:none;color:var(--blue);padding:4px 2px}
+.progress{height:4px;background:var(--rule-2);border-radius:4px;overflow:hidden;margin-top:14px}
+.progress div{height:100%;width:0;background:var(--blue);transition:width .25s}
+.ptext{font-size:13px;color:var(--ink-2);margin:8px 0 0;min-height:1.5em}
+
+/* Results */
+#results{margin-top:52px;scroll-margin-top:72px}
+.verdict{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px 32px;margin-bottom:20px}
+.verdict .big{font-stretch:118%;font-weight:750;font-size:clamp(26px,3.6vw,40px);line-height:1.08;letter-spacing:-.015em;margin:0;max-width:22ch}
+.verdict .sub{color:var(--ink-2);margin:8px 0 0;font-size:14.5px}
+.tally{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:0}
+.tally li{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:7px;font-size:14px;font-weight:600}
+.tally li svg{width:16px;height:16px}
+.t-pass{background:var(--pass-bg);color:var(--pass)} .t-fail{background:var(--fail-bg);color:var(--fail)}
+.t-review{background:var(--review-bg);color:var(--review)} .t-manual{background:var(--manual-bg);color:var(--manual)}
+
+/* The tick sheet */
+.ticksheet{background:var(--sheet);border:1px solid var(--rule);border-radius:12px;padding:8px 20px 14px}
+.trow{display:grid;grid-template-columns:minmax(120px,210px) 1fr;gap:16px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--rule-2)}
+.trow:last-of-type{border-bottom:0}
+.tlabel{font-size:13.5px;font-weight:600;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis}
+.tlabel small{display:block;font-weight:500;color:var(--ink-3);font-size:12px}
+.cells{display:flex;flex-wrap:wrap;gap:6px}
+.cell{width:30px;height:30px;border-radius:6px;border:1.5px solid var(--rule);background:var(--paper);color:var(--ink-3);display:grid;place-items:center;cursor:pointer;padding:0}
+.cell svg{width:18px;height:18px}
+.cell:hover{transform:translateY(-1px)}
+.c-pass{border-color:var(--pass);background:var(--pass-bg);color:var(--pass)}
+.c-fail{border-color:var(--fail);background:var(--fail);color:var(--sheet)}
+.c-review{border-color:var(--review);background:var(--review-bg);color:var(--review)}
+.c-manual{border-color:var(--manual);border-style:dashed;background:transparent;color:var(--manual)}
+.c-running{border-color:var(--blue);color:var(--blue)}
+.cell.ovr{box-shadow:0 0 0 2px var(--sheet),0 0 0 3.5px var(--ink-3)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin:12px 0 0;padding:10px 0 0;border-top:1px solid var(--rule-2);font-size:12.5px;color:var(--ink-3);list-style:none}
+.legend li{display:flex;align-items:center;gap:7px}
+.legend .cell{width:18px;height:18px;border-radius:4px;cursor:default}
+.legend .cell svg{width:12px;height:12px}
+.spin{animation:spin .9s linear infinite;transform-origin:50% 50%}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin:28px 0 6px;position:sticky;top:53px;z-index:3;background:var(--paper);padding:10px 0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--rule);background:var(--sheet);border-radius:999px;padding:5px 12px;font-size:13.5px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--sheet)}
+.chip b{font-weight:650;margin-left:4px}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+
+.group h3{font-stretch:110%;font-weight:700;font-size:17px;margin:26px 0 10px;display:flex;align-items:baseline;gap:10px}
+.group h3 small{font-stretch:100%;font-weight:500;font-size:13px;color:var(--ink-3)}
+.item{background:var(--sheet);border:1px solid var(--rule-2);border-left:4px solid var(--rule);border-radius:9px;margin-bottom:8px;scroll-margin-top:120px}
+.item.s-pass{border-left-color:var(--pass)} .item.s-fail{border-left-color:var(--fail)} .item.s-review{border-left-color:var(--review)} .item.s-manual{border-left-color:var(--manual)} .item.s-running{border-left-color:var(--blue)}
+.item.flash{animation:flash 1.2s ease-out}
+@keyframes flash{0%{box-shadow:0 0 0 3px var(--blue)}100%{box-shadow:0 0 0 0 transparent}}
+.item-main{display:grid;grid-template-columns:30px 1fr auto;gap:14px;align-items:start;width:100%;padding:14px 16px;background:none;border:0;text-align:left;cursor:pointer;border-radius:9px}
+.item-main .cell{cursor:inherit}
+.item-main .cell:hover{transform:none}
+.itext{font-weight:560;font-size:15px;display:block}
+.ireason{display:block;color:var(--ink-2);font-size:14px;margin-top:3px}
+.imeta{font-size:12.5px;color:var(--ink-3);text-align:right;white-space:nowrap;padding-top:2px}
+.imeta b{display:block;font-weight:600;color:var(--ink-2)}
+.idetail{padding:0 16px 16px 60px}
+.ev{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.ev li{background:var(--paper);border-radius:7px;padding:9px 11px;font-size:13.5px}
+.ev .where{display:block;font-size:12.5px;font-weight:600;color:var(--ink-2);margin-bottom:2px}
+.ev .txt{white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto;display:block}
+.ev mark{background:var(--review-bg);color:inherit;border-radius:3px;padding:0 2px;box-shadow:inset 0 -2px 0 var(--review)}
+.scope{font-size:12.5px;color:var(--ink-3);margin:10px 0 0}
+.more{font-size:13px;color:var(--ink-3);margin:6px 0 0}
+.yourcall{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--rule-2);font-size:13px;color:var(--ink-2)}
+.yourcall select,.yourcall input{padding:6px 9px;border:1px solid var(--rule);border-radius:7px;background:var(--sheet);font-size:13.5px}
+.yourcall input{flex:1;min-width:180px}
+.empty-note{color:var(--ink-3);font-size:14px;padding:18px 0}
+.privacy{color:var(--ink-3);font-size:13px;margin:40px 0 0;max-width:70ch}
+
+/* Settings */
+dialog{width:min(660px,calc(100vw - 24px));max-height:calc(100vh - 32px);border:1px solid var(--rule);border-radius:12px;padding:0;background:var(--sheet);color:var(--ink)}
+dialog::backdrop{background:rgba(8,12,18,.5)}
+.dhead{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--rule-2)}
+.dhead h2{margin:0;font-size:18px;font-stretch:112%;font-weight:700}
+.dbody{padding:18px 20px;display:grid;gap:16px}
+.dfoot{display:flex;justify-content:space-between;gap:10px;padding:14px 20px;border-top:1px solid var(--rule-2);flex-wrap:wrap}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg label{position:relative}
+.seg input{position:absolute;opacity:0}
+.seg span{display:block;border:1px solid var(--rule);border-radius:8px;padding:7px 12px;font-size:13.5px;cursor:pointer}
+.seg input:checked+span{border-color:var(--blue);background:var(--blue-bg);color:var(--ink);font-weight:600}
+.seg input:focus-visible+span{outline:2px solid var(--blue);outline-offset:2px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.row3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.status{font-size:13.5px;padding:9px 11px;border-radius:7px;background:var(--paper);color:var(--ink-2)}
+.status.ok{background:var(--pass-bg);color:var(--pass)} .status.err{background:var(--fail-bg);color:var(--fail)}
+details.help{border:1px solid var(--rule-2);border-radius:8px;padding:10px 12px;font-size:13.5px;color:var(--ink-2)}
+details.help summary{cursor:pointer;font-weight:600;color:var(--ink)}
+details.help ol{padding-left:18px;margin:10px 0 0}
+details.help li{margin-bottom:8px}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+pre{background:var(--code-bg);border:1px solid var(--rule-2);border-radius:6px;padding:8px 10px;margin:6px 0 0;white-space:pre-wrap;word-break:break-all;color:var(--ink)}
+code{background:var(--code-bg);padding:1px 5px;border-radius:4px;color:var(--ink)}
+
+@media (max-width: 920px){
+  .setup{grid-template-columns:1fr}
+  .step{border-right:0;border-bottom:1px solid var(--rule-2)}
+  .step:last-child{border-bottom:0}
+}
+@media (max-width: 640px){
+  .bar{padding:10px 16px}
+  .brand .tag{display:none}
+  main{padding:28px 16px 56px}
+  .trow{grid-template-columns:1fr;gap:8px}
+  .item-main{grid-template-columns:30px 1fr;gap:12px}
+  .imeta{grid-column:2;text-align:left;white-space:normal}
+  .imeta b{display:inline;margin-right:6px}
+  .idetail{padding:0 14px 14px}
+  .row2,.row3{grid-template-columns:1fr}
+  .toolbar{position:static}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+@media print{
+  body{background:#fff;color:#000}
+  .bar,.intro,.setup,.toolbar,.yourcall,.privacy,.legend{display:none!important}
+  #results{margin-top:0}
+  .ticksheet,.item{break-inside:avoid;border-color:#bbb}
+  .item .idetail{display:block!important}
+  .item.s-pass .idetail,.item.s-manual .idetail{display:none!important}
+  .ev .txt{max-height:none}
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <svg viewBox="0 0 28 28" aria-hidden="true"><rect x="1.5" y="1.5" width="25" height="25" rx="6" fill="none" stroke="var(--blue)" stroke-width="2"/><path d="M7.5 14.5l4.2 4.2L20.5 9" fill="none" stroke="var(--blue)" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="word">Tickmark</span>
+    <span class="tag">Checklist QA for deliverables</span>
+  </div>
+  <button class="model-pill" id="modelBtn" type="button" aria-haspopup="dialog"><span class="dot off" id="modelDot"></span><span id="modelLabel">Set up a model</span></button>
+</header>
+
+<main>
+  <div id="libError" class="banner" hidden>The file readers couldn't load from cdnjs.cloudflare.com. Check your internet connection, then reload the page.</div>
+
+  <section class="intro">
+    <h1>Check a deliverable against its checklist.</h1>
+    <p class="lede">Load the QA checklist and the finished files. Rule checks run right here in the browser, judgment calls go to the local model you choose, and every result shows where it looked.</p>
+  </section>
+
+  <section class="setup" aria-label="Set up a check">
+    <div class="step">
+      <div class="step-head"><span class="num">1</span><h2>Checklist</h2></div>
+      <label class="drop" id="dropChecklist">
+        <input type="file" id="checklistInput" accept=".xlsx,.xlsm,.xls,.csv,.ods">
+        <strong>Drop the checklist here</strong>
+        <span>Excel or CSV, or click to browse</span>
+      </label>
+      <div id="checklistInfo"></div>
+    </div>
+    <div class="step">
+      <div class="step-head"><span class="num">2</span><h2>Files to check</h2></div>
+      <label class="drop" id="dropFiles">
+        <input type="file" id="filesInput" multiple accept=".xlsx,.xlsm,.xls,.csv,.ods,.pptx,.docx,.pdf,.txt,.md,.json,.html,.htm">
+        <strong>Drop the deliverables here</strong>
+        <span>Excel, PowerPoint, Word, PDF, CSV or text. Add the source workbook too so figures can be traced.</span>
+      </label>
+      <ul class="files" id="fileList"></ul>
+    </div>
+    <div class="step">
+      <div class="step-head"><span class="num">3</span><h2>Run</h2></div>
+      <ul class="plan" id="plan"><li class="hint" style="border:0;color:var(--ink-3);font-size:13.5px">Add a checklist and at least one file to see how each item will be checked.</li></ul>
+      <button class="btn primary" id="runBtn" type="button" disabled>Run checks</button>
+      <div class="progress" aria-hidden="true"><div id="bar"></div></div>
+      <p class="ptext" id="ptext" role="status" aria-live="polite"></p>
+      <button class="btn ghost" id="stopBtn" type="button" hidden>Stop</button>
+    </div>
+  </section>
+
+  <section id="results" hidden aria-label="Results">
+    <div class="verdict">
+      <div>
+        <p class="big" id="bigLine"></p>
+        <p class="sub" id="subLine"></p>
+      </div>
+      <ul class="tally" id="tally"></ul>
+    </div>
+    <div class="ticksheet" id="ticksheet"></div>
+    <div class="toolbar">
+      <div class="chips" id="chips" role="group" aria-label="Filter results"></div>
+      <div class="actions">
+        <button class="btn" id="dlBtn" type="button">Download filled checklist</button>
+        <button class="btn" id="printBtn" type="button">Print report</button>
+      </div>
+    </div>
+    <div id="items"></div>
+  </section>
+
+  <p class="privacy">Files are read inside this browser and never uploaded. The only thing that leaves the page is the excerpt sent to the model address set under the model button, which is normally a model running on your own computer.</p>
+</main>
+
+<dialog id="settings" aria-labelledby="setTitle">
+  <form method="dialog" id="setForm">
+    <div class="dhead"><h2 id="setTitle">Model for judgment checks</h2><button class="x" value="cancel" aria-label="Close">&times;</button></div>
+    <div class="dbody">
+      <div class="field">Where the model runs
+        <div class="seg" id="providerSeg"></div>
+      </div>
+      <div class="row2" id="urlRow">
+        <label class="field">Server address<input id="urlIn" type="url" spellcheck="false" autocomplete="off"></label>
+        <label class="field" id="keyField">API key (if the server needs one)<input id="keyIn" type="password" autocomplete="off" placeholder="Stored only in this browser"></label>
+      </div>
+      <div class="row2" id="modelRow">
+        <label class="field">Model<input id="modelIn" list="modelList" spellcheck="false" autocomplete="off" placeholder="Pick or type a model name"><datalist id="modelList"></datalist></label>
+        <div class="field">&nbsp;<button class="btn" type="button" id="testBtn">Test connection</button></div>
+      </div>
+      <div class="status" id="setStatus" role="status" aria-live="polite">Test the connection to load the models available on that server.</div>
+      <div class="row3" id="advRow">
+        <label class="field">Excerpt size (characters)<input id="budgetIn" type="number" min="1500" max="60000" step="500"></label>
+        <label class="field">Checks at a time<input id="concIn" type="number" min="1" max="6"></label>
+        <label class="field">Context window (Ollama)<input id="ctxIn" type="number" min="2048" max="131072" step="1024"></label>
+      </div>
+      <details class="help" id="helpBox"><summary>How to let this page reach your model</summary><div id="helpBody"></div></details>
+    </div>
+    <div class="dfoot">
+      <button class="btn ghost" value="cancel">Cancel</button>
+      <button class="btn primary" style="width:auto" value="save" id="saveBtn">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- small helpers ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm = s => String(s ?? '').replace(/\s+/g, ' ').trim();
+const lc = s => norm(s).toLowerCase();
+const plural = (n, w, p) => `${n} ${n === 1 ? w : (p || w + 's')}`;
+const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+const squash = s => lc(String(s ?? '').replace(/[“”"'’‘`]/g, '').replace(/[–—−]/g, '-'));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('tickmark.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('tickmark.' + k, JSON.stringify(v)); } catch (e) {} }
+};
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+const GLYPH = {
+  pass: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 10.5l3.6 3.6L15.5 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  fail: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 6l8 8M14 6l-8 8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  review: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.4 7.6a2.7 2.7 0 1 1 3.9 2.4c-.8.4-1.3 1-1.3 1.9v.4" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><circle cx="10" cy="15.2" r="1.25" fill="currentColor"/></svg>',
+  manual: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="7" r="3" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M4.5 16.5c.8-2.8 3-4.2 5.5-4.2s4.7 1.4 5.5 4.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
+  pending: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2" fill="currentColor"/></svg>',
+  running: '<svg viewBox="0 0 20 20" aria-hidden="true" class="spin"><path d="M10 3.5a6.5 6.5 0 1 1-6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>'
+};
+const LABEL = { pass: 'Passed', fail: 'Failed', review: 'Needs review', manual: 'Confirm yourself', pending: 'Queued', running: 'Checking' };
+const KIND_LABEL = { excel: 'Spreadsheet', slides: 'Slides', word: 'Document', pdf: 'PDF', text: 'Text' };
+
+/* ---------- state ---------- */
+const PRESETS = {
+  ollama:   { label: 'Ollama',                 url: 'http://localhost:11434',   api: 'ollama' },
+  lmstudio: { label: 'LM Studio',              url: 'http://localhost:1234/v1', api: 'openai' },
+  llamacpp: { label: 'llama.cpp server',       url: 'http://localhost:8080/v1', api: 'openai' },
+  custom:   { label: 'Other (OpenAI-compatible)', url: '',                      api: 'openai' },
+  off:      { label: 'Off: rule checks only',  url: '',                         api: 'off' }
+};
+const settings = Object.assign({ provider: 'ollama', url: PRESETS.ollama.url, model: '', key: '', budget: 6000, conc: 1, ctx: 8192 }, store.get('settings', {}));
+const S = { checklist: null, docs: [], results: [], running: false, stop: false, filter: 'all', open: new Set(), modelState: settings.model ? 'unknown' : 'none' };
+
+/* ---------- file reading utilities ---------- */
+function loadScript(src) {
+  return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src)); document.head.appendChild(s); });
+}
+let pdfReady = null;
+function ensurePdfjs() {
+  if (!pdfReady) pdfReady = (async () => {
+    await loadScript(PDFJS);
+    await loadScript(PDFJS_WORKER); // runs the PDF parser on the page itself, which works from file:// and any host
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+  })().catch(e => { pdfReady = null; throw e; });
+  return pdfReady;
+}
+async function readXml(zip, path) {
+  const f = zip.file(path); if (!f) return null;
+  const t = await f.async('string');
+  const x = new DOMParser().parseFromString(t, 'application/xml');
+  return x.getElementsByTagName('parsererror').length ? null : x;
+}
+const all = (node, local) => node ? Array.from(node.getElementsByTagNameNS('*', local)) : [];
+const first = (node, local) => node ? node.getElementsByTagNameNS('*', local)[0] || null : null;
+const child = (node, local) => node ? Array.from(node.children).find(c => c.localName === local) || null : null;
+const attrW = (el, name) => el ? (el.getAttributeNS(W_NS, name) || el.getAttribute('w:' + name) || '') : '';
+function resolvePart(from, target) {
+  if (!target) return '';
+  if (target.startsWith('/')) return target.slice(1);
+  const parts = from.split('/'); parts.pop();
+  for (const seg of target.split('/')) { if (seg === '..') parts.pop(); else if (seg && seg !== '.') parts.push(seg); }
+  return parts.join('/');
+}
+async function readRels(zip, part) {
+  const p = part.replace(/([^/]+)$/, '_rels/$1.rels');
+  const x = await readXml(zip, p); const out = [];
+  if (!x) return out;
+  for (const r of x.getElementsByTagName('Relationship')) {
+    const ext = r.getAttribute('TargetMode') === 'External';
+    out.push({ id: r.getAttribute('Id'), type: r.getAttribute('Type') || '', external: ext, target: ext ? r.getAttribute('Target') : resolvePart(part, r.getAttribute('Target')) });
+  }
+  return out;
+}
+async function themeFonts(zip, path) {
+  const x = await readXml(zip, path); if (!x) return {};
+  const pick = el => first(el, 'latin')?.getAttribute('typeface') || null;
+  return { major: pick(first(x, 'majorFont')), minor: pick(first(x, 'minorFont')) };
+}
+async function coreProps(zip, doc) {
+  const x = await readXml(zip, 'docProps/core.xml'); if (!x) return;
+  const g = n => norm(first(x, n)?.textContent || '');
+  doc.meta.title = g('title'); doc.meta.author = g('creator'); doc.meta.lastModifiedBy = g('lastModifiedBy'); doc.meta.modified = g('modified');
+}
+function addFont(doc, name, loc) {
+  if (!name) return;
+  name = norm(name);
+  if (!name || name.startsWith('+')) return;
+  if (!doc.f.fonts.has(name)) doc.f.fonts.set(name, []);
+  const a = doc.f.fonts.get(name);
+  if (!a.includes(loc) && a.length < 40) a.push(loc);
+}
+function pushChunks(doc, loc, text, extra = {}) {
+  text = String(text || '').trim();
+  if (!text) return;
+  const max = 1600;
+  if (text.length <= max) { doc.chunks.push({ loc, text, ...extra }); return; }
+  const lines = text.split('\n'); let buf = ''; let part = 1;
+  for (const ln of lines) {
+    if ((buf + '\n' + ln).length > max && buf) { doc.chunks.push({ loc: `${loc} (part ${part++})`, text: buf, ...extra }); buf = ''; }
+    buf = buf ? buf + '\n' + ln : ln;
+    while (buf.length > max) { doc.chunks.push({ loc: `${loc} (part ${part++})`, text: buf.slice(0, max), ...extra }); buf = buf.slice(max); }
+  }
+  if (buf) doc.chunks.push({ loc: part > 1 ? `${loc} (part ${part})` : loc, text: buf, ...extra });
+}
+const ranges = nums => {
+  const out = []; let s = null, p = null;
+  for (const n of nums) { if (s === null) { s = p = n; } else if (n === p + 1) { p = n; } else { out.push(s === p ? `${s}` : `${s}–${p}`); s = p = n; } }
+  if (s !== null) out.push(s === p ? `${s}` : `${s}–${p}`);
+  return out.join(', ');
+};
+
+/* ---------- parsers ---------- */
+const KIND = ext => ({ xlsx: 'excel', xlsm: 'excel', xls: 'excel', csv: 'excel', ods: 'excel', pptx: 'slides', docx: 'word', pdf: 'pdf', txt: 'text', md: 'text', json: 'text', html: 'text', htm: 'text' })[ext];
+
+async function parseFile(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const doc = {
+    id: uid(), name: file.name, ext, kind: KIND(ext), size: file.size, status: 'reading', note: '', summary: '',
+    chunks: [], meta: {}, nums: [], textNums: [],
+    f: { errors: [], fonts: new Map(), comments: [], tracked: [], hidden: [], hiddenRC: [], extLinks: [], empty: [], units: [], pageNum: null, cells: 0 }
+  };
+  S.docs.push(doc); renderFiles();
+  try {
+    if (!doc.kind) throw new Error('This file type isn\'t supported yet.');
+    const buf = await file.arrayBuffer();
+    if (doc.kind === 'excel') await parseExcel(doc, buf);
+    else if (doc.kind === 'slides') await parsePptx(doc, buf);
+    else if (doc.kind === 'word') await parseDocx(doc, buf);
+    else if (doc.kind === 'pdf') await parsePdf(doc, buf);
+    else await parseText(doc, buf);
+    if (doc.kind !== 'excel') extractTextNumbers(doc);
+    doc.status = 'ready';
+  } catch (e) {
+    console.error(e);
+    doc.status = 'error'; doc.note = e.message || String(e);
+  }
+  renderFiles(); renderPlan();
+}
+
+async function parseExcel(doc, buf) {
+  const wb = XLSX.read(buf, { type: 'array', cellFormula: true, cellStyles: true, cellDates: false });
+  const wbs = (wb.Workbook && wb.Workbook.Sheets) || [];
+  const ERR = /^#(REF!|N\/A|DIV\/0!|VALUE!|NAME\?|NULL!|NUM!|SPILL!|CALC!)/;
+  wb.SheetNames.forEach((name, i) => {
+    const ws = wb.Sheets[name];
+    const sloc = `Sheet '${name}'`;
+    if (wbs[i] && wbs[i].Hidden) doc.f.hidden.push({ loc: sloc, text: wbs[i].Hidden === 2 ? 'Very hidden sheet' : 'Hidden sheet' });
+    if (!ws || !ws['!ref']) { doc.f.empty.push({ loc: sloc, text: 'Sheet is empty' }); doc.f.units.push({ loc: sloc, text: '' }); return; }
+    const rg = XLSX.utils.decode_range(ws['!ref']);
+    const lines = [];
+    for (let r = rg.s.r; r <= rg.e.r; r++) {
+      const parts = [];
+      for (let c = rg.s.c; c <= rg.e.c; c++) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[addr]; if (!cell) continue;
+        doc.f.cells++;
+        const shown = cell.w != null ? String(cell.w) : (cell.v != null ? String(cell.v) : '');
+        if (cell.t === 'e' || ERR.test(shown) || (cell.f && /#REF!/i.test(cell.f))) {
+          doc.f.errors.push({ loc: `${name}!${addr}`, text: (ERR.test(shown) ? shown : (cell.f ? '#REF! in formula' : 'Error')) + (cell.f ? `   =${cell.f}` : '') });
+        }
+        if (cell.t === 'n' && isFinite(cell.v)) doc.nums.push(cell.v);
+        if (shown !== '') parts.push(`${addr}: ${shown}`);
+      }
+      if (parts.length) lines.push({ r: r + 1, text: parts.join(' | ') });
+    }
+    for (let k = 0; k < lines.length; k += 30) {
+      const slice = lines.slice(k, k + 30);
+      doc.chunks.push({ loc: `${sloc}, rows ${slice[0].r}–${slice[slice.length - 1].r}`, text: slice.map(l => l.text).join('\n') });
+    }
+    doc.f.units.push({ loc: sloc, text: lines.map(l => l.text).join('\n') });
+    if (!lines.length) doc.f.empty.push({ loc: sloc, text: 'Sheet has no values' });
+    const hr = (ws['!rows'] || []).map((ro, ri) => ro && ro.hidden ? ri + 1 : null).filter(v => v !== null);
+    if (hr.length) doc.f.hiddenRC.push({ loc: sloc, text: `Hidden rows ${ranges(hr)}` });
+    const hc = (ws['!cols'] || []).map((co, ci) => co && co.hidden ? ci : null).filter(v => v !== null);
+    if (hc.length) doc.f.hiddenRC.push({ loc: sloc, text: `Hidden columns ${hc.map(c => XLSX.utils.encode_col(c)).join(', ')}` });
+  });
+  for (const n of (wb.Workbook && wb.Workbook.Names) || []) {
+    if (/#REF!/.test(n.Ref || '')) doc.f.errors.push({ loc: `Named range '${n.Name}'`, text: `Broken reference: ${n.Ref}` });
+  }
+  doc.meta.sheets = wb.SheetNames.length;
+  if (['xlsx', 'xlsm'].includes(doc.ext)) {
+    try {
+      const zip = await JSZip.loadAsync(buf);
+      await coreProps(zip, doc);
+      const files = Object.keys(zip.files);
+      for (const p of files.filter(n => /^xl\/externalLinks\/externalLink\d+\.xml$/.test(n))) {
+        const rels = await readRels(zip, p);
+        const t = rels.find(r => /externalLinkPath|oleObject/.test(r.type)) || rels[0];
+        doc.f.extLinks.push({ loc: 'Workbook links', text: `Linked to ${t ? t.target : 'an external file'}` });
+      }
+      // map comments to sheets
+      const wbx = await readXml(zip, 'xl/workbook.xml');
+      const wbRels = await readRels(zip, 'xl/workbook.xml');
+      for (const sh of all(wbx, 'sheet')) {
+        const rid = sh.getAttributeNS(R_NS, 'id') || sh.getAttribute('r:id');
+        const rel = wbRels.find(r => r.id === rid); if (!rel) continue;
+        const srels = await readRels(zip, rel.target);
+        for (const cr of srels.filter(r => /\/comments$/.test(r.type))) {
+          const cx = await readXml(zip, cr.target);
+          for (const c of all(cx, 'comment')) doc.f.comments.push({ loc: `${sh.getAttribute('name')}!${c.getAttribute('ref')}`, text: norm(c.textContent).slice(0, 300) });
+        }
+      }
+      const st = await readXml(zip, 'xl/styles.xml');
+      for (const fnt of all(first(st, 'fonts'), 'font')) addFont(doc, child(fnt, 'name')?.getAttribute('val'), 'Workbook styles');
+    } catch (e) { console.warn('xlsx extras', e); }
+  }
+  doc.summary = `${plural(wb.SheetNames.length, 'sheet')}, ${doc.f.cells.toLocaleString()} cells`;
+}
+
+async function parsePptx(doc, buf) {
+  const zip = await JSZip.loadAsync(buf);
+  await coreProps(zip, doc);
+  const theme = await themeFonts(zip, 'ppt/theme/theme1.xml');
+  const pres = await readXml(zip, 'ppt/presentation.xml');
+  const presRels = await readRels(zip, 'ppt/presentation.xml');
+  let order = [];
+  for (const s of all(pres, 'sldId')) {
+    const rid = s.getAttributeNS(R_NS, 'id') || s.getAttribute('r:id');
+    const rel = presRels.find(r => r.id === rid); if (rel) order.push(rel.target);
+  }
+  if (!order.length) order = Object.keys(zip.files).filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a, b) => parseInt(a.match(/\d+/)) - parseInt(b.match(/\d+/)));
+  const resolveFace = f => f === '+mj-lt' ? theme.major : f === '+mn-lt' ? theme.minor : (f && f.startsWith('+') ? null : f);
+  const paraText = (p, flags) => {
+    let s = '';
+    for (const c of Array.from(p.children)) {
+      if (c.localName === 'r') s += first(c, 't')?.textContent || '';
+      else if (c.localName === 'br') s += '\n';
+      else if (c.localName === 'fld') { if (/slidenum/i.test(c.getAttribute('type') || '')) flags.num = true; else s += first(c, 't')?.textContent || ''; }
+    }
+    return s;
+  };
+  for (let i = 0; i < order.length; i++) {
+    const path = order[i]; const n = i + 1; const loc = `Slide ${n}`;
+    const x = await readXml(zip, path); if (!x) continue;
+    const hidden = x.documentElement.getAttribute('show') === '0';
+    const flags = { num: false };
+    if (all(x, 'ph').some(ph => ph.getAttribute('type') === 'sldNum')) flags.num = true;
+    let title = ''; const lines = [];
+    for (const tb of all(x, 'txBody')) {
+      let anc = tb.parentNode; while (anc && anc.localName !== 'sp' && anc.localName !== 'graphicFrame') anc = anc.parentNode;
+      const ph = anc && anc.localName === 'sp' ? first(anc, 'ph') : null;
+      const isTitle = !!ph && /^(title|ctrTitle)$/.test(ph.getAttribute('type') || '');
+      for (const p of all(tb, 'p')) {
+        const t = paraText(p, flags);
+        if (norm(t)) { lines.push(t); if (isTitle && !title) title = norm(t); }
+      }
+      for (const r of all(tb, 'r')) {
+        if (!norm(first(r, 't')?.textContent || '')) continue;
+        const face = first(child(r, 'rPr'), 'latin')?.getAttribute('typeface');
+        addFont(doc, resolveFace(face) || (isTitle ? theme.major : theme.minor), loc);
+      }
+    }
+    const pics = all(x, 'pic').length + all(x, 'graphicFrame').length;
+    const text = lines.join('\n');
+    doc.f.units.push({ loc, text, title, hidden, slideNum: flags.num });
+    if (!norm(text) && !pics) doc.f.empty.push({ loc, text: 'Slide has no text or graphics' });
+    pushChunks(doc, title ? `${loc}: ${title}` : loc, text);
+    const rels = await readRels(zip, path);
+    for (const r of rels) {
+      if (/\/notesSlide$/.test(r.type)) {
+        const nx = await readXml(zip, r.target);
+        if (nx) {
+          const nl = [];
+          for (const sp of all(nx, 'sp')) {
+            const ph = first(sp, 'ph'); const tp = ph?.getAttribute('type') || '';
+            if (/sldImg|sldNum|hdr|ftr|dt/.test(tp)) continue;
+            for (const p of all(sp, 'p')) { const t = paraText(p, {}); if (norm(t)) nl.push(t); }
+          }
+          pushChunks(doc, `${loc} speaker notes`, nl.join('\n'), { notes: true });
+        }
+      } else if (/comment/i.test(r.type) || /comment/i.test(r.target)) {
+        const cx = await readXml(zip, r.target);
+        for (const cm of all(cx, 'cm')) doc.f.comments.push({ loc, text: norm(first(cm, 'text')?.textContent || all(cm, 't').map(t => t.textContent).join(' ')).slice(0, 300) || 'Comment' });
+      }
+    }
+  }
+  doc.meta.slides = order.length;
+  const hiddenCount = doc.f.units.filter(u => u.hidden).length;
+  doc.summary = plural(order.length, 'slide') + (hiddenCount ? `, ${hiddenCount} hidden` : '');
+}
+
+async function parseDocx(doc, buf) {
+  const zip = await JSZip.loadAsync(buf);
+  await coreProps(zip, doc);
+  const x = await readXml(zip, 'word/document.xml');
+  if (!x) throw new Error('This Word file has no readable document body.');
+  const theme = await themeFonts(zip, 'word/theme/theme1.xml');
+  const st = await readXml(zip, 'word/styles.xml');
+  const styles = {}; let defFont = theme.minor || null; let defPara = 'Normal';
+  const pick = rFonts => {
+    if (!rFonts) return null;
+    const a = attrW(rFonts, 'ascii') || attrW(rFonts, 'hAnsi'); if (a) return a;
+    const th = attrW(rFonts, 'asciiTheme') || attrW(rFonts, 'hAnsiTheme'); if (th) return /major/i.test(th) ? theme.major : theme.minor;
+    return null;
+  };
+  if (st) {
+    const dd = first(st, 'rPrDefault'); defFont = pick(first(dd, 'rFonts')) || defFont;
+    for (const s of all(st, 'style')) {
+      const id = attrW(s, 'styleId'); const rPr = child(s, 'rPr'); const based = child(s, 'basedOn');
+      styles[id] = { font: pick(rPr && child(rPr, 'rFonts')), based: based ? attrW(based, 'val') : null };
+      if (attrW(s, 'type') === 'paragraph' && (attrW(s, 'default') === '1' || attrW(s, 'default') === 'true')) defPara = id;
+    }
+  }
+  const styleFont = id => { let g = 0; while (id && g++ < 20) { const s = styles[id]; if (!s) break; if (s.font) return s.font; id = s.based; } return null; };
+  const runText = r => { let s = ''; for (const c of Array.from(r.children)) { if (c.localName === 't') s += c.textContent; else if (c.localName === 'tab') s += '\t'; else if (c.localName === 'br' || c.localName === 'cr') s += '\n'; } return s; };
+  const paraText = p => all(p, 'r').map(runText).join('');
+  const body = first(x, 'body');
+  let section = 'Opening'; let buf2 = []; const bodyLines = [];
+  const flush = () => { if (buf2.length) pushChunks(doc, `Section: ${section}`, buf2.join('\n')); buf2 = []; };
+  for (const el of Array.from(body ? body.children : [])) {
+    if (el.localName === 'p') {
+      const pStyle = attrW(first(child(el, 'pPr'), 'pStyle'), 'val');
+      const t = paraText(el);
+      const heading = /^(heading|title|berschrift|titre)\s*\d*$/i.test(pStyle) || !!first(child(el, 'pPr'), 'outlineLvl');
+      const pf = styleFont(pStyle || defPara);
+      for (const r of all(el, 'r')) {
+        if (!norm(runText(r))) continue;
+        const rPr = child(r, 'rPr');
+        const rs = attrW(child(rPr, 'rStyle'), 'val');
+        addFont(doc, pick(child(rPr, 'rFonts')) || styleFont(rs) || pf || defFont, heading ? `Heading "${norm(t).slice(0, 40)}"` : `Section: ${section}`);
+      }
+      if (!norm(t)) continue;
+      if (heading) { flush(); section = norm(t).slice(0, 80); }
+      buf2.push(t); bodyLines.push(t);
+    } else if (el.localName === 'tbl') {
+      for (const tr of all(el, 'tr')) {
+        const row = all(tr, 'tc').map(tc => norm(all(tc, 'p').map(paraText).join(' '))).join(' | ');
+        if (norm(row.replace(/\|/g, ''))) { buf2.push(row); bodyLines.push(row); }
+      }
+      for (const r of all(el, 'r')) { if (norm(runText(r))) addFont(doc, pick(child(child(r, 'rPr'), 'rFonts')) || styleFont(defPara) || defFont, `Table in section: ${section}`); }
+    }
+  }
+  flush();
+  doc.f.units.push({ loc: 'Document body', text: bodyLines.join('\n') });
+  // tracked changes
+  for (const ins of all(x, 'ins')) { if (ins.parentNode && ins.parentNode.localName === 'rPr') continue; const t = norm(all(ins, 't').map(n => n.textContent).join('')); doc.f.tracked.push({ loc: `Insertion by ${attrW(ins, 'author') || 'unknown'}`, text: t ? `Inserted: "${t.slice(0, 160)}"` : 'Inserted content' }); }
+  for (const del of all(x, 'del')) { if (del.parentNode && del.parentNode.localName === 'rPr') continue; const t = norm(all(del, 'delText').map(n => n.textContent).join('')); doc.f.tracked.push({ loc: `Deletion by ${attrW(del, 'author') || 'unknown'}`, text: t ? `Deleted: "${t.slice(0, 160)}"` : 'Deleted content' }); }
+  const fmt = all(x, 'rPrChange').length + all(x, 'pPrChange').length;
+  if (fmt) doc.f.tracked.push({ loc: 'Formatting', text: `${plural(fmt, 'tracked formatting change')}` });
+  // comments
+  const cx = await readXml(zip, 'word/comments.xml');
+  for (const c of all(cx, 'comment')) doc.f.comments.push({ loc: `Comment by ${attrW(c, 'author') || 'unknown'}`, text: norm(all(c, 't').map(n => n.textContent).join(' ')).slice(0, 300) || 'Comment' });
+  // headers and footers
+  const rels = await readRels(zip, 'word/document.xml');
+  let pageField = /\bPAGE\b/.test(all(x, 'instrText').map(n => n.textContent).join(' ') + ' ' + all(x, 'fldSimple').map(n => attrW(n, 'instr')).join(' '));
+  for (const r of rels.filter(r => /\/(header|footer)$/.test(r.type))) {
+    const hx = await readXml(zip, r.target); if (!hx) continue;
+    const kind = /header$/.test(r.type) ? 'Header' : 'Footer';
+    const t = all(hx, 'p').map(paraText).filter(s => norm(s)).join('\n');
+    const instr = all(hx, 'instrText').map(n => n.textContent).join(' ') + ' ' + all(hx, 'fldSimple').map(n => attrW(n, 'instr')).join(' ');
+    if (/\bPAGE\b/.test(instr)) pageField = true;
+    if (norm(t)) { doc.f.units.push({ loc: kind, text: t, hf: true }); pushChunks(doc, kind, t); }
+  }
+  doc.f.pageNum = pageField;
+  doc.meta.paragraphs = bodyLines.length;
+  doc.summary = `${plural(bodyLines.length, 'paragraph')}` + (doc.f.comments.length ? `, ${plural(doc.f.comments.length, 'comment')}` : '') + (doc.f.tracked.length ? `, ${plural(doc.f.tracked.length, 'tracked change')}` : '');
+}
+
+async function parsePdf(doc, buf) {
+  await ensurePdfjs();
+  const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(buf), isEvalSupported: false }).promise;
+  doc.meta.pages = pdf.numPages;
+  try { const md = await pdf.getMetadata(); doc.meta.title = md.info?.Title || ''; doc.meta.author = md.info?.Author || ''; } catch (e) {}
+  let chars = 0;
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const tc = await page.getTextContent();
+    let s = '';
+    for (const it of tc.items) { if (typeof it.str !== 'string') continue; s += it.str; s += it.hasEOL ? '\n' : ' '; }
+    s = s.replace(/[ \t]+\n/g, '\n').replace(/ {2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    chars += s.length;
+    const loc = `Page ${i}`;
+    doc.f.units.push({ loc, text: s });
+    if (!s) doc.f.empty.push({ loc, text: 'No text on this page (blank, or image only)' });
+    pushChunks(doc, loc, s);
+    try {
+      const anns = await page.getAnnotations();
+      for (const a of anns) {
+        if (/^(Text|FreeText|Highlight|Underline|StrikeOut|Squiggly|Caret|Ink|Stamp)$/.test(a.subtype)) {
+          const t = norm(a.contentsObj?.str || a.contents || '');
+          doc.f.comments.push({ loc, text: `${a.subtype === 'Text' ? 'Comment' : a.subtype + ' annotation'}${t ? ': ' + t.slice(0, 240) : ''}` });
+        }
+      }
+    } catch (e) {}
+  }
+  if (pdf.numPages && chars < 25 * pdf.numPages) doc.note = 'Little or no text layer, so this looks scanned. Text checks on it will be limited.';
+  doc.summary = plural(pdf.numPages, 'page') + (doc.f.comments.length ? `, ${plural(doc.f.comments.length, 'annotation')}` : '');
+}
+
+async function parseText(doc, buf) {
+  let t = new TextDecoder('utf-8').decode(buf);
+  if (doc.ext === 'html' || doc.ext === 'htm') { const d = new DOMParser().parseFromString(t, 'text/html'); t = d.body ? d.body.innerText || d.body.textContent : t; }
+  doc.f.units.push({ loc: 'Whole file', text: t });
+  pushChunks(doc, 'Text', t);
+  doc.summary = `${t.length.toLocaleString()} characters`;
+}
+
+/* ---------- numbers in narrative ---------- */
+const MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december';
+function maskDates(t) {
+  const blank = m => ' '.repeat(m.length);
+  return t
+    .replace(new RegExp(`\\b\\d{1,2}(st|nd|rd|th)?[\\s\\-/.]*(${MONTHS})\\.?[\\s\\-/,.']*\\d{2,4}\\b`, 'gi'), blank)
+    .replace(new RegExp(`\\b(${MONTHS})\\.?\\s+\\d{1,2}(st|nd|rd|th)?,?\\s+\\d{4}\\b`, 'gi'), blank)
+    .replace(new RegExp(`\\b(${MONTHS})\\.?[\\s\\-']+\\d{2,4}\\b`, 'gi'), blank)
+    .replace(new RegExp(`\\b\\d{1,2}(st|nd|rd|th)?\\s+(${MONTHS})\\b`, 'gi'), blank)
+    .replace(new RegExp(`\\b(${MONTHS})\\.?\\s+\\d{1,2}(st|nd|rd|th)?\\b`, 'gi'), blank)
+    .replace(/\b\d{1,4}[\/\-.]\d{1,2}[\/\-.]\d{1,4}\b/g, blank)
+    .replace(/\b([1-4]Q|Q[1-4]|H[12]|FY|CY)\s?['’]?\d{2,4}\b/gi, blank)
+    .replace(/\b(slide|page|section|note|notes|item|step|level|phase|tier|chapter|appendix|exhibit|figure|table|row|column|line)\s+\d+\b/gi, blank);
+}
+const NUM_RE = /(?<![\w.,])(\(?)([-−–+])?\s?([$£€₹¥])?\s?(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s?(%|bn|billion|mm|mn|million|m|k|thousand|x)?(?![\w])/gi;
+function extractTextNumbers(doc) {
+  for (const ch of doc.chunks) {
+    if (ch.notes) continue;
+    const masked = maskDates(ch.text);
+    let m; NUM_RE.lastIndex = 0;
+    while ((m = NUM_RE.exec(masked))) {
+      const raw = m[4]; const unit = (m[5] || '').toLowerCase(); const cur = m[3] || '';
+      const val = parseFloat(raw.replace(/,/g, ''));
+      const dec = raw.includes('.') ? raw.split('.')[1].length : 0;
+      if (!isFinite(val)) continue;
+      if (!unit && !cur && !raw.includes(',') && dec === 0 && (val < 10 || (val >= 1900 && val <= 2100))) continue;
+      doc.textNums.push({ val, dec, unit, raw: m[0].trim(), loc: ch.loc, idx: m.index, len: m[0].length, text: ch.text });
+    }
+  }
+}
+function makePool(arr) { const a = Float64Array.from(arr.filter(Number.isFinite).map(Math.abs)); a.sort(); return a; }
+function poolHas(pool, lo, hi) { let l = 0, h = pool.length; while (l < h) { const m = (l + h) >> 1; if (pool[m] < lo) l = m + 1; else h = m; } return l < pool.length && pool[l] <= hi; }
+function traced(pool, n) {
+  const half = 0.5 * Math.pow(10, -n.dec) + 1e-9;
+  const v = Math.abs(n.val); const tries = [];
+  const scale = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, mn: 1e6, million: 1e6, bn: 1e9, billion: 1e9 }[n.unit];
+  if (scale) tries.push([v * scale, half * scale], [v, half], [v * scale / 1e3, half * scale / 1e3]);
+  else if (n.unit === '%') tries.push([v / 100, half / 100], [v, half]);
+  else if (n.unit === 'x') tries.push([v, half]);
+  else tries.push([v, half], [v * 1e3, half * 1e3], [v * 1e6, half * 1e6], [v / 100, half / 100]);
+  return tries.some(([t, h]) => poolHas(pool, t - h, t + h));
+}
+
+/* ---------- reporting periods ---------- */
+const QEND = { mar: [1, 31], march: [1, 31], jun: [2, 30], june: [2, 30], sep: [3, 30], sept: [3, 30], september: [3, 30], dec: [4, 31], december: [4, 31] };
+function periodLabels(text) {
+  const out = []; let m;
+  const y4 = y => { y = String(y).replace(/['’]/g, ''); return y.length === 2 ? 2000 + Number(y) : Number(y); };
+  const push = (q, y, mm) => out.push({ key: `Q${q} ${y4(y)}`, idx: mm.index, len: mm[0].length });
+  let re = /\bQ([1-4])\s?(?:FY\s?)?['’]?((?:19|20)\d{2}|\d{2})\b/gi; while ((m = re.exec(text))) push(m[1], m[2], m);
+  re = /\b([1-4])Q\s?['’]?((?:19|20)\d{2}|\d{2})\b/gi; while ((m = re.exec(text))) push(m[1], m[2], m);
+  re = /\b(30|31)(?:st|th)?[\s\-\/.]*(march|mar|june|jun|september|sept|sep|december|dec)\.?[\s\-\/,.']*((?:19|20)\d{2}|\d{2})\b/gi;
+  while ((m = re.exec(text))) { const q = QEND[m[2].toLowerCase()]; if (q && +m[1] === q[1]) push(q[0], m[3], m); }
+  re = /\b(march|mar|june|jun|september|sept|sep|december|dec)\.?\s+(30|31),?\s+((?:19|20)\d{2})\b/gi;
+  while ((m = re.exec(text))) { const q = QEND[m[1].toLowerCase()]; if (q && +m[2] === q[1]) push(q[0], m[3], m); }
+  re = /\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-]((?:19|20)\d{2})\b/g;
+  while ((m = re.exec(text))) {
+    const a = +m[1], b = +m[2];
+    const qe = (d, mo) => ({ 3: [1, 31], 6: [2, 30], 9: [3, 30], 12: [4, 31] })[mo]?.[1] === d ? ({ 3: 1, 6: 2, 9: 3, 12: 4 })[mo] : 0;
+    const q = qe(a, b) || qe(b, a); if (q) push(q, m[3], m);
+  }
+  re = /\b((?:19|20)\d{2})-(\d{2})-(\d{2})\b/g;
+  while ((m = re.exec(text))) { const q = ({ '03-31': 1, '06-30': 2, '09-30': 3, '12-31': 4 })[`${m[2]}-${m[3]}`]; if (q) push(q, m[1], m); }
+  return out;
+}
+
+/* ---------- evidence helpers ---------- */
+function snip(text, idx, len, pad = 60) {
+  const a = Math.max(0, idx - pad), b = Math.min(text.length, idx + len + pad);
+  const pre = a > 0 ? '…' : '', post = b < text.length ? '…' : '';
+  return { text: pre + text.slice(a, b) + post, hl: [idx - a + pre.length, len] };
+}
+function scopeDocs(text, docs) {
+  const t = text.toLowerCase(); const want = new Set();
+  if (/\b(slides?|decks?|ppt|pptx|powerpoint|presentations?)\b/.test(t)) want.add('slides');
+  if (/\b(memo|word|docx|letter|write-?up|narrative document)\b/.test(t)) want.add('word');
+  if (/\bpdfs?\b/.test(t)) want.add('pdf');
+  if (/\b(excel|workbooks?|spreadsheets?|models?|sheets?|tabs?|xlsx|csv)\b/.test(t)) want.add('excel');
+  if (!want.size) return { docs, named: false };
+  const s = docs.filter(d => want.has(d.kind));
+  return s.length ? { docs: s, named: true } : { docs, named: false };
+}
+const R = (status, reason, evidence = [], extra = {}) => ({ status, reason, evidence, ...extra });
+
+/* ---------- rule checks ---------- */
+const FONT_LIST = ['Calibri Light', 'Calibri', 'Arial Narrow', 'Arial Black', 'Arial', 'Aptos Display', 'Aptos Narrow', 'Aptos', 'Cambria', 'Times New Roman', 'Helvetica Neue', 'Helvetica', 'Georgia', 'EB Garamond', 'Garamond', 'Segoe UI', 'Verdana', 'Tahoma', 'Century Gothic', 'Gill Sans MT', 'Gill Sans', 'Futura', 'Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Source Sans Pro', 'Franklin Gothic Book', 'Franklin Gothic Medium', 'Franklin Gothic', 'Trebuchet MS', 'Book Antiqua', 'Palatino Linotype', 'Palatino', 'Corbel', 'Candara', 'Constantia', 'Avenir Next', 'Avenir', 'Frutiger', 'Univers', 'Myriad Pro', 'Inter', 'Noto Sans', 'Public Sans', 'IBM Plex Sans', 'Poppins', 'Raleway', 'Nunito', 'Source Serif Pro', 'Baskerville', 'Bodoni MT', 'Consolas', 'Courier New'];
+const SYMBOL_FONT = /^(wingdings|symbol|webdings|marlett|segoe ui symbol|segoe ui emoji|ms gothic|ms mincho|mt extra)/i;
+const family = f => f.replace(/\s+(light|semibold|semilight|bold|black|medium|narrow|condensed|display|text)$/i, '');
+
+const RULES = [
+  { id: 'hidden', label: 'Hidden content',
+    test: t => /\bhidden\b|\bunhid(e|den)\b/i.test(t),
+    run(t, docs) {
+      const { docs: scope } = scopeDocs(t, docs);
+      const sheets = /sheet|tab/i.test(t), slides = /slide/i.test(t), rc = /\brows?\b|\bcolumns?\b/i.test(t);
+      const any = !(sheets || slides || rc); const ev = []; const looked = [];
+      for (const d of scope) {
+        if (d.kind === 'excel') { looked.push(d.name); if (any || sheets) d.f.hidden.forEach(h => ev.push({ file: d.name, loc: h.loc, text: h.text })); if (any || rc) d.f.hiddenRC.forEach(h => ev.push({ file: d.name, loc: h.loc, text: h.text })); }
+        if (d.kind === 'slides') { looked.push(d.name); if (any || slides) d.f.units.filter(u => u.hidden).forEach(u => ev.push({ file: d.name, loc: u.loc, text: 'Slide is hidden' })); }
+      }
+      if (!looked.length) return R('review', 'None of these files can hold hidden sheets or slides, so there was nothing to check.');
+      return ev.length ? R('fail', `${plural(ev.length, 'hidden item')} found.`, ev, { scope: looked }) : R('pass', 'Nothing is hidden in the files checked.', [], { scope: looked });
+    } },
+  { id: 'links', label: 'External links',
+    test: t => /external (links?|references?)|linked (workbooks?|files?)|links? to (other|external) (files?|workbooks?)|broken links?/i.test(t),
+    run(t, docs) {
+      const xs = docs.filter(d => d.kind === 'excel' && ['xlsx', 'xlsm'].includes(d.ext));
+      if (!xs.length) return R('review', 'No .xlsx workbook among the files, so there were no workbook links to check.');
+      const ev = xs.flatMap(d => d.f.extLinks.map(e => ({ file: d.name, loc: e.loc, text: e.text })));
+      return ev.length ? R('fail', `${plural(ev.length, 'external link')} found.`, ev, { scope: xs.map(d => d.name) }) : R('pass', 'No links to other workbooks.', [], { scope: xs.map(d => d.name) });
+    } },
+  { id: 'errors', label: 'Formula errors',
+    test: t => /#(REF|N\/A|DIV|VALUE|NAME|NULL|NUM)|formula errors?|excel errors?|cell errors?|calculation errors?|broken (formulas?|references?)|error values?/i.test(t),
+    run(t, docs) {
+      const xs = docs.filter(d => d.kind === 'excel');
+      if (!xs.length) return R('review', 'No spreadsheet among the files, so there were no formulas to check.');
+      const ev = xs.flatMap(d => d.f.errors.map(e => ({ file: d.name, loc: e.loc, text: e.text })));
+      const cells = xs.reduce((a, d) => a + d.f.cells, 0);
+      return ev.length ? R('fail', `${plural(ev.length, 'formula error')} found.`, ev, { scope: xs.map(d => d.name) })
+        : R('pass', `No formula errors in ${cells.toLocaleString()} cells.`, [], { scope: xs.map(d => d.name) });
+    } },
+  { id: 'placeholders', label: 'Placeholder text',
+    test: t => /placeholder|\bTBD\b|\bTBC\b|\bTODO\b|lorem|\bXX+\b|\[insert|dummy (text|data|numbers?)|template text|draft (text|language)/i.test(t),
+    run(t, docs) {
+      const { docs: scope } = scopeDocs(t, docs);
+      const extra = [];
+      for (const m of t.matchAll(/["“']([^"”']{2,30})["”']/g)) extra.push(m[1]);
+      const pats = [/\b(TBD|TBC|TODO|FIXME|X{2,})\b|\?{3,}/g, /lorem ipsum|\[(?:insert|add|enter|tbd|tbc|placeholder|xx)[^\]]{0,40}\]|<(?:insert|add|enter)[^>]{0,40}>|click to add (title|text)/gi];
+      for (const e of extra) if (!/^(tbd|tbc|todo|xx+|\[insert\])$/i.test(e)) pats.push(new RegExp(e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'));
+      const ev = [];
+      for (const d of scope) for (const ch of d.chunks) {
+        for (const re of pats) { re.lastIndex = 0; let m; while ((m = re.exec(ch.text)) && ev.length < 60) { const s = snip(ch.text, m.index, m[0].length); ev.push({ file: d.name, loc: ch.loc, text: s.text, hl: s.hl }); } }
+      }
+      return ev.length ? R('fail', `${plural(ev.length, 'placeholder')} still in the files.`, ev, { scope: scope.map(d => d.name) }) : R('pass', 'No placeholder text found (TBD, TBC, TODO, XX, [insert], lorem ipsum).', [], { scope: scope.map(d => d.name) });
+    } },
+  { id: 'comments', label: 'Comments and tracked changes',
+    test: t => /\b(comments?|tracked changes|track changes|redlines?|mark-?ups?|revision marks|annotations?)\b/i.test(t) && /(remov|resolv|clear|delet|accept|\bno\b|none|clean|strip|without)/i.test(t),
+    run(t, docs) {
+      const { docs: scope } = scopeDocs(t, docs);
+      const ok = scope.filter(d => ['word', 'slides', 'excel', 'pdf'].includes(d.kind));
+      if (!ok.length) return R('review', 'Only text files were given, and they can\'t carry comments.');
+      const ev = [];
+      for (const d of ok) { d.f.comments.forEach(c => ev.push({ file: d.name, loc: c.loc, text: c.text })); d.f.tracked.forEach(c => ev.push({ file: d.name, loc: c.loc, text: c.text })); }
+      return ev.length ? R('fail', `${plural(ev.length, 'comment or tracked change', 'comments or tracked changes')} left in.`, ev, { scope: ok.map(d => d.name) }) : R('pass', 'No comments or tracked changes left in.', [], { scope: ok.map(d => d.name) });
+    } },
+  { id: 'fonts', label: 'Fonts',
+    test: t => /\bfonts?\b|\btypefaces?\b/i.test(t),
+    run(t, docs) {
+      const sc = scopeDocs(t, docs);
+      const useExcel = sc.named && sc.docs.some(d => d.kind === 'excel');
+      const scope = sc.docs.filter(d => d.kind === 'slides' || d.kind === 'word' || (useExcel && d.kind === 'excel'));
+      if (!scope.length) return R('review', 'Fonts can only be read from PowerPoint and Word files (and Excel when the item names it). PDFs aren\'t checked for fonts.');
+      const seen = new Set(); scope.forEach(d => d.f.fonts.forEach((_, f) => seen.add(f)));
+      let rest = t.toLowerCase(); const allowed = [];
+      for (const f of [...FONT_LIST, ...seen].sort((a, b) => b.length - a.length)) { const k = f.toLowerCase(); if (rest.includes(k)) { allowed.push(f); rest = rest.split(k).join(' '); } }
+      const used = new Map();
+      for (const d of scope) for (const [f, locs] of d.f.fonts) { if (SYMBOL_FONT.test(f)) continue; if (!used.has(f)) used.set(f, []); used.get(f).push({ d, locs }); }
+      const desc = f => used.get(f).map(u => `${u.d.name}: ${u.locs.slice(0, 8).join(', ')}${u.locs.length > 8 ? ` and ${u.locs.length - 8} more` : ''}`).join('\n');
+      if (!allowed.length) {
+        const fams = new Set([...used.keys()].map(family));
+        const ev = [...used.keys()].map(f => ({ file: f, loc: '', text: desc(f), title: true }));
+        if (fams.size <= 1) return R('pass', `One font family is used throughout${fams.size ? `: ${[...fams][0]}` : ''}.`, ev, { scope: scope.map(d => d.name) });
+        return R('review', `The item doesn't name a font. ${plural(fams.size, 'font family', 'font families')} in use: ${[...fams].join(', ')}.`, ev, { scope: scope.map(d => d.name) });
+      }
+      const ok = f => allowed.some(a => f.toLowerCase() === a.toLowerCase() || family(f).toLowerCase() === family(a).toLowerCase());
+      const bad = [...used.keys()].filter(f => !ok(f));
+      if (!bad.length) return R('pass', `Only ${allowed.join(' / ')} used.`, [], { scope: scope.map(d => d.name) });
+      return R('fail', `Other fonts found: ${bad.join(', ')}.`, bad.map(f => ({ file: f, loc: '', text: desc(f), title: true })), { scope: scope.map(d => d.name) });
+    } },
+  { id: 'pagenums', label: 'Page and slide numbers',
+    test: t => /\b(page|slide) ?numbers?\b|\bnumbered (pages|slides)\b|\bpaginat/i.test(t),
+    run(t, docs) {
+      const { docs: scope } = scopeDocs(t, docs);
+      const ev = []; const looked = []; let note = '';
+      for (const d of scope) {
+        if (d.kind === 'slides') {
+          looked.push(d.name);
+          const vis = d.f.units.filter(u => !u.hidden);
+          let miss = vis.filter(u => !u.slideNum).map(u => u.loc);
+          if (miss.length && miss[0] === 'Slide 1' && miss.length < vis.length) { miss = miss.slice(1); note = ' The cover slide was allowed to go without one.'; }
+          if (miss.length) ev.push({ file: d.name, loc: '', text: `No slide number on ${miss.join(', ')}` });
+        } else if (d.kind === 'word') {
+          looked.push(d.name); if (!d.f.pageNum) ev.push({ file: d.name, loc: 'Header and footer', text: 'No page number field found' });
+        } else if (d.kind === 'pdf') {
+          looked.push(d.name);
+          const miss = d.f.units.filter((u, i) => { const n = i + 1; const s = u.text; const edge = s.slice(0, 80) + ' ' + s.slice(-80); return !new RegExp(`(^|\\D)${n}(\\D|$)`).test(edge); }).map(u => u.loc);
+          if (miss.length) ev.push({ file: d.name, loc: '', text: `No page number spotted on ${miss.slice(0, 20).join(', ')}${miss.length > 20 ? ' and more' : ''}` });
+        }
+      }
+      if (!looked.length) return R('review', 'No slides, Word or PDF files to check for numbering.');
+      return ev.length ? R('fail', 'Some pages or slides have no number.' + note, ev, { scope: looked }) : R('pass', 'Every page and slide is numbered.' + note, [], { scope: looked });
+    } },
+  { id: 'empty', label: 'Blank pages',
+    test: t => /\b(blank|empty) (slides?|pages?|sheets?|tabs?)\b|\bno (blank|empty)\b/i.test(t),
+    run(t, docs) {
+      const { docs: scope } = scopeDocs(t, docs);
+      const ev = scope.flatMap(d => d.f.empty.map(e => ({ file: d.name, loc: e.loc, text: e.text })));
+      return ev.length ? R(scope.some(d => d.kind === 'pdf') ? 'review' : 'fail', `${plural(ev.length, 'blank page or slide', 'blank pages or slides')} found.`, ev, { scope: scope.map(d => d.name) }) : R('pass', 'No blank pages, slides or sheets.', [], { scope: scope.map(d => d.name) });
+    } },
+  { id: 'manual', label: 'Process step',
+    test: t => /\b(sign(ed)?[- ]?off|signed by|approved by|approval (from|by)|reviewed by|checked by|sent to|send to|e-?mailed|uploaded|saved (to|in|on)|shared with|filed (in|to)|archived|logged (in|on)|ticket|jira|circulated|communicated to|informed)\b/i.test(t),
+    run: () => R('manual', 'This is a process step. The files can\'t show whether it happened, so confirm it yourself.') },
+  { id: 'quoted', label: 'Required wording',
+    test: t => quotesIn(t).length > 0,
+    run(t, docs) {
+      const quotes = quotesIn(t);
+      const sc = scopeDocs(t, docs);
+      const scope = sc.docs;
+      const neg = quotes.some(q => /\b(no|not|never|without|remove[ds]?|delete[ds]?|absent|none)\b[^"“'‘]{0,40}$/i.test(t.slice(0, t.indexOf(q.raw))) || /does(n'?t| not) (contain|include|show)/i.test(t));
+      const perUnit = /\b(every|each|all)\b[^.]{0,30}\b(slides?|pages?|sheets?|tabs?)\b|\bthroughout\b|\b(footers?|headers?)\b/i.test(t);
+      const hf = /\b(footers?|headers?)\b/i.test(t);
+      const ev = []; let missing = 0, total = 0;
+      for (const q of quotes) {
+        const needle = squash(q.text);
+        for (const d of scope) {
+          let units;
+          if (perUnit && d.kind === 'word') units = hf ? d.f.units.filter(u => u.hf) : d.f.units;
+          else if (perUnit && d.kind !== 'text') units = d.f.units.filter(u => !u.hidden);
+          else units = [{ loc: 'anywhere in the file', text: d.f.units.map(u => u.text).join('\n') + '\n' + d.chunks.map(c => c.text).join('\n') }];
+          if (perUnit && d.kind === 'word') { // a header or footer repeats on every page
+            const hit = units.some(u => squash(u.text).includes(needle));
+            total++; if (neg ? hit : !hit) { missing++; ev.push({ file: d.name, loc: hf ? 'Headers and footers' : 'Document', text: neg ? `Contains “${q.text}”` : `“${q.text}” not found` }); }
+            continue;
+          }
+          for (const u of units) {
+            total++;
+            const hay = squash(u.text);
+            const hit = hay.includes(needle);
+            if (neg && hit) { missing++; const i = lc(u.text).indexOf(lc(q.text)); const s = i >= 0 ? snip(u.text, i, q.text.length) : { text: `Contains “${q.text}”` }; ev.push({ file: d.name, loc: u.loc, text: s.text, hl: s.hl }); }
+            if (!neg && !hit) { missing++; ev.push({ file: d.name, loc: u.loc, text: `“${q.text}” not found` }); }
+          }
+        }
+      }
+      const names = scope.map(d => d.name);
+      if (neg) return missing ? R('fail', `${quotes.map(q => `“${q.text}”`).join(', ')} still appears in ${plural(missing, 'place')}.`, ev, { scope: names }) : R('pass', `${quotes.map(q => `“${q.text}”`).join(', ')} doesn't appear anywhere.`, [], { scope: names });
+      if (!perUnit && !sc.named) { // any one file is enough
+        const present = total - missing;
+        if (present > 0) return R('pass', `Found in ${plural(present, 'file')}.`, [], { scope: names });
+        return R('fail', `${quotes.map(q => `“${q.text}”`).join(', ')} wasn't found in any file.`, ev, { scope: names });
+      }
+      return missing ? R('fail', `Missing in ${plural(missing, 'place')}${perUnit ? ` out of ${total}` : ''}.`, ev.slice(0, 80), { scope: names })
+        : R('pass', perUnit ? `Present on all ${total} pages and slides checked.` : 'Present in every file checked.', [], { scope: names });
+    } },
+  { id: 'period', label: 'Reporting period',
+    test: t => !/\bformat/i.test(t) && ((/\b(period|quarter|as[- ]of|as at|reporting date|valuation date|dates?|roll[- ]?forward|rolled forward)\b/i.test(t) && /\b(correct|consistent|throughout|updated|current|right|reflects?|every|all|match(es)?|same)\b/i.test(t)) || (periodLabels(t).length > 0 && /\b(throughout|consistent|everywhere|all|every|correct)\b/i.test(t))),
+    run(t, docs) {
+      const { docs: scope } = scopeDocs(t, docs);
+      const expected = [...new Set(periodLabels(t).map(p => p.key))];
+      const found = new Map();
+      for (const d of scope) for (const ch of d.chunks) for (const p of periodLabels(ch.text)) {
+        if (!found.has(p.key)) found.set(p.key, []);
+        found.get(p.key).push({ d, ch, p });
+      }
+      const names = scope.map(d => d.name);
+      if (!found.size) return R('review', 'No reporting-period labels (like Q3 2026 or 30 Sep 2026) were found in the files.', [], { scope: names });
+      const tally = [...found.entries()].sort((a, b) => b[1].length - a[1].length);
+      const summary = tally.map(([k, v]) => `${k} (${v.length})`).join(', ');
+      const main = expected.length ? expected : [tally[0][0]];
+      if (expected.length && !expected.some(k => found.has(k))) return R('fail', `${expected.join(', ')} doesn't appear anywhere. Periods found: ${summary}.`, evFrom(tally.slice(0, 3)), { scope: names });
+      const others = tally.filter(([k]) => !main.includes(k));
+      if (!others.length) return R('pass', `Every period reference is ${main.join(', ')} (${tally[0][1].length} found).`, [], { scope: names });
+      return R('review', `Mostly ${main.join(', ')}, but other periods appear: ${others.map(([k, v]) => `${k} (${v.length})`).join(', ')}. They may be valid comparatives, so check them.`, evFrom(others), { scope: names });
+      function evFrom(list) { const ev = []; for (const [k, v] of list) for (const x of v.slice(0, 12)) { const s = snip(x.ch.text, x.p.idx, x.p.len); ev.push({ file: x.d.name, loc: x.ch.loc, text: s.text, hl: s.hl }); } return ev; }
+    } },
+  { id: 'trace', label: 'Figures trace to source',
+    test: t => /\b(ties?|tied|tie[- ]?outs?|reconcil\w*|match(es|ed)?|agrees?|agreed|consistent|traceable|traced?|footed)\b/i.test(t) && /\b(numbers?|figures?|amounts?|totals?|financials?|data|values?|source|models?|excel|workbooks?|statements?|metrics|kpis?|nav|returns?|irr|moic|tvpi|dpi|balances?)\b/i.test(t),
+    run(t, docs) {
+      const src = docs.filter(d => d.kind === 'excel');
+      if (!src.length) return R('review', 'Add the source workbook to the files so figures can be traced back to it.');
+      const sc = scopeDocs(t.replace(/\b(excel|workbooks?|spreadsheets?|models?|sheets?|xlsx|csv)\b/gi, ''), docs);
+      const narr = sc.docs.filter(d => d.kind !== 'excel');
+      if (!narr.length) return R('review', 'There are no slides, documents or PDFs to trace against the workbook.');
+      const pool = makePool(src.flatMap(d => d.nums));
+      let n = 0; const miss = [];
+      for (const d of narr) for (const x of d.textNums) { n++; if (!traced(pool, x)) miss.push({ d, x }); }
+      const names = [...narr, ...src].map(d => d.name);
+      if (!n) return R('review', 'No figures found in the narrative files.', [], { scope: names });
+      const ok = n - miss.length;
+      if (!miss.length) return R('pass', `All ${n} figures trace to the source ${src.length > 1 ? 'workbooks' : 'workbook'}, allowing for rounding and units.`, [], { scope: names });
+      const ev = miss.slice(0, 60).map(({ d, x }) => { const s = snip(x.text, x.idx, x.len); return { file: d.name, loc: x.loc, text: s.text, hl: s.hl }; });
+      return R(miss.length / n > 0.25 ? 'fail' : 'review', `${ok} of ${n} figures trace to the source. ${plural(miss.length, 'figure')} couldn't be found there; some may be derived (sums, differences), so check them.`, ev, { scope: names, more: miss.length > 60 ? miss.length - 60 : 0 });
+    } }
+];
+function quotesIn(t) {
+  const out = []; let m;
+  const re = /["“]([^"“”]{2,140})["”]|(?:^|[\s(:])[‘']([^'‘’]{2,140})[’'](?=[\s).,;:!?]|$)/g;
+  while ((m = re.exec(t))) { const text = norm(m[1] || m[2]); if (text && !/^(tbd|tbc|todo|xx+)$/i.test(text)) out.push({ text, raw: m[0].trim() }); }
+  return out;
+}
+function classify(text) {
+  for (const rule of RULES) { try { if (rule.test(text)) return { type: rule.id === 'manual' ? 'manual' : 'code', rule }; } catch (e) {} }
+  return { type: 'ai' };
+}
+
+/* ---------- local model ---------- */
+const STOP = new Set('the a an and or of to in on for with by is are be been was were this that these those all any each every from as at it its into than then there their our your has have had not yes should must shall will can may per via including include includes included ensure ensured check checked confirm confirmed make sure verify verified item items file files document report deck page pages slide slides section'.split(' '));
+const stem = w => w.length > 4 && w.endsWith('ies') ? w.slice(0, -3) + 'y' : w.length > 5 && w.endsWith('ing') ? w.slice(0, -3) : w.length > 4 && w.endsWith('ed') ? w.slice(0, -2) : w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w;
+const terms = s => (String(s).toLowerCase().match(/[a-z0-9%$]+/g) || []).filter(w => w.length > 2 && !STOP.has(w)).map(stem);
+function retrieve(item, scope, budget) {
+  const chunks = scope.flatMap(d => d.chunks.map(c => ({ d, c })));
+  chunks.forEach(x => { if (!x.c._t) x.c._t = new Set(terms(x.c.text + ' ' + x.c.loc)); });
+  const q = [...new Set(terms(item))];
+  const df = {}; q.forEach(w => { df[w] = chunks.filter(x => x.c._t.has(w)).length; });
+  const N = chunks.length || 1;
+  const scored = chunks.map((x, i) => ({ ...x, i, s: q.reduce((a, w) => a + (x.c._t.has(w) ? Math.log(1 + N / (df[w] || 1)) : 0), 0) }));
+  let pick = scored.filter(x => x.s > 0).sort((a, b) => b.s - a.s || a.i - b.i);
+  if (!pick.length) pick = scored.slice();
+  const out = []; let used = 0;
+  for (const x of pick) {
+    const text = x.c.text.length > 1800 ? x.c.text.slice(0, 1800) + '…' : x.c.text;
+    if (used + text.length > budget && out.length) break;
+    out.push({ file: x.d.name, loc: x.c.loc, text }); used += text.length;
+  }
+  return out;
+}
+const SYS = 'You review finished client deliverables against a QA checklist. You get one checklist item and excerpts from the files. Judge only from the excerpts and the file list. Reply with a single JSON object and nothing else.';
+function buildPrompt(item, docs, ex) {
+  const files = docs.map(d => `- ${d.name} (${KIND_LABEL[d.kind] || d.kind}${d.summary ? ', ' + d.summary : ''})`).join('\n');
+  const exs = ex.map((e, i) => `[${i + 1}] ${e.file}, ${e.loc}\n${e.text}`).join('\n\n');
+  return `Checklist item: ${item.text}\nSection: ${item.category}\n\nFiles provided:\n${files}\n\nExcerpts:\n${exs || '(no text found)'}\n\nReply with JSON:\n{"verdict": "pass" | "fail" | "needs_review" | "manual", "reason": "one or two plain sentences", "quote": "exact words copied from one excerpt or the file list that show the result, or empty", "excerpt": number of that excerpt, or 0}\n\nRules:\n- "pass" only when an excerpt clearly shows the item is met. Copy the words that show it into "quote".\n- "fail" only when an excerpt clearly shows it is not met. Copy the words that show it.\n- "needs_review" when the excerpts don't settle it, or when it needs arithmetic.\n- "manual" when the item is a process step (approval, sending, saving, sign-off) that file contents can't prove.\n- Never invent a quote. If you can't copy one, answer "needs_review".`;
+}
+async function fetchT(url, opt = {}, ms = 180000) {
+  const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), ms);
+  try { return await fetch(url, { ...opt, signal: ac.signal }); }
+  catch (e) { const err = new Error(e.name === 'AbortError' ? 'The model took too long to answer.' : `Couldn't reach ${url}.`); err.network = e.name !== 'AbortError'; throw err; }
+  finally { clearTimeout(tm); }
+}
+const api = () => PRESETS[settings.provider]?.api || 'openai';
+const base = () => String(settings.url || '').trim().replace(/\/+$/, '');
+const authHeaders = () => settings.key ? { Authorization: 'Bearer ' + settings.key } : {};
+async function listModels() {
+  if (api() === 'ollama') { const r = await fetchT(base() + '/api/tags', {}, 8000); if (!r.ok) throw new Error(`Server answered ${r.status}.`); const j = await r.json(); return (j.models || []).map(m => m.name); }
+  const r = await fetchT(base() + '/models', { headers: authHeaders() }, 8000); if (!r.ok) throw new Error(`Server answered ${r.status}.`); const j = await r.json(); return (j.data || []).map(m => m.id);
+}
+async function callModel(messages) {
+  if (api() === 'ollama') {
+    const r = await fetchT(base() + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: settings.model, messages, stream: false, format: 'json', options: { temperature: 0, num_ctx: Number(settings.ctx) || 8192 } }) });
+    if (!r.ok) throw new Error(`Model answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    const j = await r.json(); return j.message?.content || '';
+  }
+  const r = await fetchT(base() + '/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ model: settings.model, messages, temperature: 0, stream: false }) });
+  if (!r.ok) throw new Error(`Model answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const j = await r.json(); return j.choices?.[0]?.message?.content || '';
+}
+function parseJSON(raw) {
+  let s = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/```(?:json)?/gi, '').trim();
+  const a = s.indexOf('{'), b = s.lastIndexOf('}');
+  if (a >= 0 && b > a) { try { return JSON.parse(s.slice(a, b + 1)); } catch (e) {} }
+  const v = (s.match(/"?verdict"?\s*[:=]\s*"?(\w+)/i) || [])[1];
+  return v ? { verdict: v, reason: s.slice(0, 300) } : null;
+}
+function quoteFound(quote, hay) {
+  const q = squash(quote); if (q.length < 3) return false;
+  const h = squash(hay); if (h.includes(q)) return true;
+  const qw = q.split(' ').filter(w => w.length > 2); if (qw.length < 4) return false;
+  const hw = new Set(h.split(/[^a-z0-9%$.,]+/)); return qw.filter(w => hw.has(w.replace(/[^a-z0-9%$.,]/g, ''))).length / qw.length >= 0.85;
+}
+async function aiCheck(item, docs) {
+  const sc = scopeDocs(item.text, docs);
+  const ex = retrieve(item.text, sc.docs, Number(settings.budget) || 6000);
+  const raw = await callModel([{ role: 'system', content: SYS }, { role: 'user', content: buildPrompt(item, docs, ex) }]);
+  const j = parseJSON(raw);
+  const scope = sc.docs.map(d => d.name);
+  if (!j) return R('review', 'The model\'s answer couldn\'t be read, so this needs a look.', [{ file: 'Model reply', loc: '', text: String(raw).slice(0, 600) }], { scope });
+  const v = String(j.verdict || '').toLowerCase();
+  let status = /^(pass|passed|yes|met|compliant|true)$/.test(v) ? 'pass' : /^(fail|failed|no|not met|non-compliant|false)$/.test(v) ? 'fail' : /manual/.test(v) ? 'manual' : 'review';
+  let reason = norm(j.reason || '') || LABEL[status] + '.';
+  const quote = norm(j.quote || '');
+  const hay = ex.map(e => e.text).join('\n') + '\n' + docs.map(d => d.name).join('\n');
+  const evidence = [];
+  if (quote) {
+    let e = ex[(Number(j.excerpt) || 0) - 1];
+    if (!e || !quoteFound(quote, e.text)) e = ex.find(x => quoteFound(quote, x.text));
+    if (e) { const i = lc(e.text).indexOf(lc(quote)); const s = i >= 0 ? snip(e.text, i, quote.length, 90) : { text: quote }; evidence.push({ file: e.file, loc: e.loc, text: s.text, hl: s.hl }); }
+    else if (docs.some(d => squash(d.name).includes(squash(quote)))) evidence.push({ file: 'File names', loc: '', text: quote });
+  }
+  if ((status === 'pass' || status === 'fail') && (!quote || !quoteFound(quote, hay))) {
+    reason = `The model said “${LABEL[status].toLowerCase()}” but ${quote ? 'its quote isn\'t in the files' : 'gave no quote to back it up'}, so check this yourself. Its reasoning: ${reason}`;
+    if (quote) evidence.push({ file: 'Unverified quote from the model', loc: '', text: quote });
+    status = 'review';
+  }
+  return R(status, reason, evidence, { scope, excerpts: ex.map(e => `${e.file}, ${e.loc}`) });
+}
+
+/* ---------- checklist loading ---------- */
+async function loadChecklist(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const sheets = wb.SheetNames.map(n => ({ name: n, aoa: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: '', raw: false, blankrows: true }) }));
+    let best = 0, bestN = -1;
+    sheets.forEach((s, i) => { const n = s.aoa.filter(r => r.some(v => norm(v))).length; if (n > bestN) { bestN = n; best = i; } });
+    S.checklist = { file: file.name, sheets, sheetIdx: best };
+    detectColumns();
+  } catch (e) {
+    console.error(e);
+    S.checklist = null;
+    $('#checklistInfo').innerHTML = `<p class="banner" style="margin-top:12px">That file couldn't be read as a checklist: ${esc(e.message)}</p>`;
+    return;
+  }
+  S.results = []; renderAll();
+}
+function detectColumns(keepCols) {
+  const c = S.checklist; const aoa = c.sheets[c.sheetIdx].aoa;
+  let hdr = -1;
+  for (let r = 0; r < Math.min(15, aoa.length); r++) {
+    const cells = (aoa[r] || []).map(norm).filter(Boolean);
+    if (cells.length >= 2 && cells.every(v => v.length < 60) && cells.filter(v => isNaN(Number(v))).length >= 2) { hdr = r; break; }
+  }
+  const width = Math.max(1, ...aoa.map(r => r.length));
+  const headers = Array.from({ length: width }, (_, i) => hdr >= 0 ? norm(aoa[hdr][i]) : '');
+  if (!keepCols) {
+    let item = headers.findIndex(h => /check|item|task|descri|requirement|criteri|control|point|step|question|test/i.test(h) && !/status|done|owner|date|by$|y\/n|complete|result|^#$|^no\.?$|number/i.test(h));
+    if (item < 0) {
+      let bestAvg = -1;
+      for (let i = 0; i < width; i++) { let tot = 0, n = 0; for (let r = hdr + 1; r < aoa.length; r++) { const v = norm(aoa[r]?.[i]); if (v && isNaN(Number(v))) { tot += v.length; n++; } } const avg = n ? tot / n : 0; if (avg > bestAvg) { bestAvg = avg; item = i; } }
+    }
+    const cat = headers.findIndex((h, i) => i !== item && /categor|section|area|group|stage|workstream|heading|module|topic/i.test(h));
+    c.itemCol = item; c.catCol = cat;
+  }
+  c.hdr = hdr; c.headers = headers; c.width = width;
+  buildItems();
+}
+function colName(i) { const c = S.checklist; return (c.headers[i] || '') ? `${c.headers[i]} (${XLSX.utils.encode_col(i)})` : `Column ${XLSX.utils.encode_col(i)}`; }
+function buildItems() {
+  const c = S.checklist; const aoa = c.sheets[c.sheetIdx].aoa; const items = [];
+  let section = '', carry = '';
+  for (let r = c.hdr + 1; r < aoa.length; r++) {
+    const row = aoa[r] || [];
+    const text = norm(row[c.itemCol]);
+    const filled = row.map(norm).filter(Boolean);
+    if (!text || /^\d+(\.\d+)?$/.test(text)) {
+      if (filled.length === 1 && isNaN(Number(filled[0])) && filled[0].length < 80) section = filled[0];
+      continue;
+    }
+    let cat;
+    if (c.catCol >= 0) { cat = norm(row[c.catCol]); if (cat) carry = cat; else cat = carry; }
+    else cat = section;
+    items.push({ row: r, text, category: cat || 'General' });
+  }
+  c.items = items;
+}
+
+/* ---------- running ---------- */
+async function runAll() {
+  if (S.running || !S.checklist) return;
+  const docs = S.docs.filter(d => d.status === 'ready');
+  if (!docs.length) return;
+  S.running = true; S.stop = false; S.open.clear(); S.filter = 'all';
+  S.results = S.checklist.items.map((it, i) => { const cls = classify(it.text); return { i, ...it, type: cls.type, rule: cls.rule, status: 'pending', reason: '', evidence: [], override: '', note: '' }; });
+  S.ranWith = { model: modelReady() ? `${PRESETS[settings.provider].label}: ${settings.model}` : 'None (rule checks only)', files: docs.map(d => d.name), at: new Date() };
+  $('#results').hidden = false; renderControls(); renderResults();
+  for (const r of S.results) {
+    if (r.type === 'ai') continue;
+    try { Object.assign(r, r.rule.run(r.text, docs)); } catch (e) { console.error(e); Object.assign(r, R('review', 'This check hit an error: ' + e.message)); }
+  }
+  renderResults(); progress();
+  const queue = S.results.filter(r => r.type === 'ai');
+  if (queue.length && !modelReady()) {
+    queue.forEach(r => Object.assign(r, R('review', 'This needs a judgment call. Connect a local model with the model button at the top to check it automatically, or review it yourself.')));
+  } else if (queue.length) {
+    let netFails = 0; let idx = 0;
+    const worker = async () => {
+      while (idx < queue.length && !S.stop) {
+        const r = queue[idx++]; r.status = 'running'; scheduleRender();
+        try { Object.assign(r, await aiCheck(r, docs)); netFails = 0; }
+        catch (e) {
+          Object.assign(r, R('review', `The model couldn't be reached for this item: ${e.message}`));
+          if (e.network && ++netFails >= 2) { S.stop = true; setModelState('err'); }
+        }
+        scheduleRender(); progress();
+      }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(6, Number(settings.conc) || 1)) }, worker));
+    queue.filter(r => r.status === 'pending' || r.status === 'running').forEach(r => Object.assign(r, R('review', netFails >= 2 ? 'Skipped because the model stopped responding. See the model settings, then run again.' : 'Skipped because the run was stopped.')));
+  }
+  S.running = false; renderControls(); renderResults(); progress(true);
+}
+async function recheck(i) {
+  const r = S.results[i]; const docs = S.docs.filter(d => d.status === 'ready');
+  if (!r || S.running) return;
+  r.status = 'running'; renderResults();
+  try { Object.assign(r, r.type === 'ai' ? (modelReady() ? await aiCheck(r, docs) : R('review', 'Connect a local model to run this check.')) : r.rule.run(r.text, docs)); }
+  catch (e) { Object.assign(r, R('review', 'This check hit an error: ' + e.message)); }
+  renderResults();
+}
+const modelReady = () => settings.provider !== 'off' && !!settings.model && !!base();
+let rq = false;
+function scheduleRender() { if (rq) return; rq = true; requestAnimationFrame(() => { rq = false; renderResults(); }); }
+function progress(done) {
+  const total = S.results.length || 1;
+  const n = S.results.filter(r => !['pending', 'running'].includes(r.status)).length;
+  $('#bar').style.width = `${Math.round(n / total * 100)}%`;
+  $('#ptext').textContent = done ? `Checked ${n} of ${total} items.` : `Checking ${n} of ${total}…`;
+}
+
+/* ---------- rendering ---------- */
+const eff = r => r.override || r.status;
+function renderAll() { renderChecklist(); renderFiles(); renderPlan(); renderControls(); }
+function renderChecklist() {
+  const box = $('#checklistInfo'); const c = S.checklist;
+  const drop = $('#dropChecklist');
+  if (!c) { box.innerHTML = ''; drop.classList.remove('compact'); drop.querySelector('strong').textContent = 'Drop the checklist here'; drop.querySelector('span').textContent = 'Excel or CSV, or click to browse'; return; }
+  drop.classList.add('compact');
+  drop.querySelector('strong').textContent = c.file;
+  drop.querySelector('span').textContent = 'Replace';
+  const opts = (n, sel, none) => (none ? `<option value="-1"${sel < 0 ? ' selected' : ''}>None</option>` : '') + Array.from({ length: n }, (_, i) => `<option value="${i}"${i === sel ? ' selected' : ''}>${esc(colName(i))}</option>`).join('');
+  box.innerHTML = `
+    <div class="fields">
+      ${c.sheets.length > 1 ? `<label class="field">Sheet<select id="sheetSel">${c.sheets.map((s, i) => `<option value="${i}"${i === c.sheetIdx ? ' selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>` : ''}
+      <label class="field">Column with the checks<select id="itemSel">${opts(c.width, c.itemCol)}</select></label>
+      <label class="field">Section column<select id="catSel">${opts(c.width, c.catCol, true)}</select></label>
+    </div>
+    <ul class="preview"><li><span class="count">${plural(c.items.length, 'item')}</span>&nbsp;found${c.items.length ? ', starting with:' : '. Try another column.'}</li>
+    ${c.items.slice(0, 3).map(it => `<li><b>${it.row + 1}</b><span>${esc(it.text)}</span></li>`).join('')}</ul>`;
+  $('#sheetSel')?.addEventListener('change', e => { c.sheetIdx = +e.target.value; detectColumns(); S.results = []; renderAll(); renderResults(); });
+  $('#itemSel').addEventListener('change', e => { c.itemCol = +e.target.value; buildItems(); S.results = []; renderAll(); renderResults(); });
+  $('#catSel').addEventListener('change', e => { c.catCol = +e.target.value; buildItems(); S.results = []; renderAll(); renderResults(); });
+}
+function renderFiles() {
+  $('#fileList').innerHTML = S.docs.map(d => `
+    <li>
+      <span class="kind ${d.kind || ''}">${esc(KIND_LABEL[d.kind] || d.ext.toUpperCase() || 'File')}</span>
+      <div><div class="fname">${esc(d.name)}</div>
+        <div class="meta-line">${d.status === 'reading' ? 'Reading…' : d.status === 'error' ? `<span style="color:var(--fail)">${esc(d.note)}</span>` : esc(d.summary)}</div>
+        ${d.status === 'ready' && d.note ? `<div class="note">${esc(d.note)}</div>` : ''}</div>
+      <button class="x" type="button" data-rm="${d.id}" aria-label="Remove ${esc(d.name)}">&times;</button>
+    </li>`).join('');
+}
+function renderPlan() {
+  const plan = $('#plan');
+  const ready = S.docs.filter(d => d.status === 'ready');
+  if (!S.checklist || !S.checklist.items.length || !ready.length) {
+    plan.innerHTML = `<li class="hint">${!S.checklist ? 'Add a checklist and at least one file to see how each item will be checked.' : !S.checklist.items.length ? 'No checklist items found yet. Pick the column that holds them.' : 'Now add the files to check.'}</li>`;
+  } else {
+    const n = { code: 0, ai: 0, manual: 0 };
+    S.checklist.items.forEach(it => n[classify(it.text).type]++);
+    plan.innerHTML = `
+      <li><span>Rule checks in the browser</span><span>${n.code}</span></li>
+      <li><span>Judgment checks by ${modelReady() ? esc(settings.model) : 'the model'}</span><span>${n.ai}</span></li>
+      <li><span>For you to confirm</span><span>${n.manual}</span></li>
+      ${n.ai && !modelReady() ? '<li class="hint">No model is connected, so the judgment checks will be left for you to review. Use the model button at the top to connect one.</li>' : ''}`;
+  }
+  renderControls();
+}
+function renderControls() {
+  const ready = S.docs.filter(d => d.status === 'ready').length;
+  const reading = S.docs.some(d => d.status === 'reading');
+  const run = $('#runBtn');
+  run.disabled = S.running || reading || !S.checklist || !S.checklist.items?.length || !ready;
+  run.textContent = S.running ? 'Checking…' : S.checklist?.items?.length ? `Check ${plural(S.checklist.items.length, 'item')}` : 'Run checks';
+  $('#stopBtn').hidden = !S.running;
+}
+function cellHTML(r, tag = 'button') {
+  const s = eff(r);
+  return `<${tag} class="cell c-${s}${r.override ? ' ovr' : ''}" ${tag === 'button' ? `type="button" data-jump="${r.i}"` : ''} aria-label="Row ${r.row + 1}: ${esc(LABEL[s])}. ${esc(r.text)}" title="Row ${r.row + 1}: ${esc(LABEL[s])}\n${esc(r.text)}">${GLYPH[s]}</${tag}>`;
+}
+function groups() {
+  const g = new Map();
+  for (const r of S.results) { if (!g.has(r.category)) g.set(r.category, []); g.get(r.category).push(r); }
+  return [...g.entries()];
+}
+function renderResults() {
+  const res = $('#results');
+  if (!S.results.length) { res.hidden = true; return; }
+  res.hidden = false;
+  const c = { pass: 0, fail: 0, review: 0, manual: 0, pending: 0, running: 0 };
+  S.results.forEach(r => c[eff(r)]++);
+  const total = S.results.length; const doneN = total - c.pending - c.running;
+  $('#bigLine').textContent = S.running && doneN < total ? `Checking ${total} items…` : c.fail ? `${c.pass} of ${total} items passed. ${plural(c.fail, 'item')} failed.` : c.review ? `${c.pass} of ${total} items passed. ${c.review} still need a look.` : `All ${c.pass + c.manual} items are clear.`;
+  $('#subLine').textContent = S.ranWith ? `${S.checklist.file} against ${plural(S.ranWith.files.length, 'file')}. Model: ${S.ranWith.model}.` : '';
+  $('#tally').innerHTML = ['fail', 'review', 'manual', 'pass'].filter(k => c[k]).map(k => `<li class="t-${k}">${GLYPH[k]}${c[k]} ${k === 'pass' ? 'passed' : k === 'fail' ? 'failed' : k === 'review' ? 'need review' : 'to confirm'}</li>`).join('');
+  $('#ticksheet').innerHTML = groups().map(([cat, rs]) => `
+    <div class="trow"><div class="tlabel" title="${esc(cat)}">${esc(cat)}<small>${rs.filter(r => eff(r) === 'pass').length} of ${rs.length} passed</small></div>
+    <div class="cells">${rs.map(r => cellHTML(r)).join('')}</div></div>`).join('') +
+    `<ul class="legend">${['pass', 'fail', 'review', 'manual'].map(k => `<li>${cellHTML({ status: k, override: '', row: -1, text: '' }, 'span')}${LABEL[k]}</li>`).join('')}<li>Ringed: changed by you</li></ul>`;
+  const chips = [['all', 'All', total], ['fail', 'Failed', c.fail], ['review', 'Needs review', c.review], ['manual', 'Confirm yourself', c.manual], ['pass', 'Passed', c.pass]];
+  $('#chips').innerHTML = chips.map(([k, l, n]) => `<button class="chip" type="button" data-filter="${k}" aria-pressed="${S.filter === k}">${l}<b>${n}</b></button>`).join('');
+  const list = S.results.filter(r => S.filter === 'all' || eff(r) === S.filter);
+  const gmap = new Map(); list.forEach(r => { if (!gmap.has(r.category)) gmap.set(r.category, []); gmap.get(r.category).push(r); });
+  $('#items').innerHTML = !list.length ? `<p class="empty-note">Nothing here. Pick another filter.</p>` : [...gmap.entries()].map(([cat, rs]) => `
+    <section class="group"><h3>${esc(cat)}<small>${plural(rs.length, 'item')}</small></h3>${rs.map(itemHTML).join('')}</section>`).join('');
+  $('#dlBtn').disabled = S.running; $('#printBtn').disabled = S.running;
+}
+function typeLine(r) {
+  if (r.type === 'code') return `<b>Rule check</b>${esc(r.rule.label)}`;
+  if (r.type === 'manual') return `<b>Process step</b>Confirm yourself`;
+  return `<b>Judgment check</b>${modelReady() ? esc(settings.model) : 'No model'}`;
+}
+function itemHTML(r) {
+  const s = eff(r); const open = S.open.has(r.i);
+  const ev = (r.evidence || []).map(e => {
+    let txt = esc(e.text);
+    if (e.hl && e.hl[1] > 0) { const t = e.text; txt = esc(t.slice(0, e.hl[0])) + '<mark>' + esc(t.slice(e.hl[0], e.hl[0] + e.hl[1])) + '</mark>' + esc(t.slice(e.hl[0] + e.hl[1])); }
+    return `<li><span class="where">${esc(e.file)}${e.loc ? `, ${esc(e.loc)}` : ''}</span><span class="txt">${txt}</span></li>`;
+  }).join('');
+  const busy = ['pending', 'running'].includes(r.status);
+  return `<article class="item s-${s}" id="item-${r.i}">
+    <button class="item-main" type="button" data-toggle="${r.i}" aria-expanded="${open}">
+      ${cellHTML(r, 'span')}
+      <span><span class="itext">${esc(r.text)}</span>${r.reason ? `<span class="ireason">${esc(r.reason)}</span>` : busy ? `<span class="ireason">${LABEL[r.status]}…</span>` : ''}</span>
+      <span class="imeta">${typeLine(r)}, row ${r.row + 1}</span>
+    </button>
+    <div class="idetail" ${open ? '' : 'hidden'}>
+      ${ev ? `<ul class="ev">${ev}</ul>` : ''}
+      ${r.more ? `<p class="more">And ${r.more} more.</p>` : ''}
+      ${r.scope?.length ? `<p class="scope">Looked at: ${esc(r.scope.join(', '))}</p>` : ''}
+      ${r.excerpts?.length ? `<p class="scope">Excerpts sent to the model: ${esc(r.excerpts.join('; '))}</p>` : ''}
+      <div class="yourcall">
+        <label>Your call <select data-ovr="${r.i}">
+          <option value="">Keep: ${esc(LABEL[r.status])}</option>
+          ${['pass', 'fail', 'review', 'manual'].filter(k => k !== r.status).map(k => `<option value="${k}"${r.override === k ? ' selected' : ''}>${LABEL[k]}</option>`).join('')}
+        </select></label>
+        <input type="text" data-note="${r.i}" value="${esc(r.note)}" placeholder="Note for the filled checklist" aria-label="Reviewer note">
+        ${r.type !== 'manual' ? `<button class="btn link" type="button" data-recheck="${r.i}"${S.running ? ' disabled' : ''}>Check again</button>` : ''}
+      </div>
+    </div>
+  </article>`;
+}
+
+/* ---------- export ---------- */
+function exportXlsx() {
+  const c = S.checklist; if (!c || !S.results.length) return;
+  const aoa = c.sheets[c.sheetIdx].aoa.map(r => r.slice());
+  const W = c.width; const add = ['QA result', 'How checked', 'Finding', 'Evidence', 'Reviewer note'];
+  let shift = 0, hdr = c.hdr;
+  if (hdr < 0) { aoa.unshift([]); shift = 1; hdr = 0; }
+  const pad = row => { while (row.length < W) row.push(''); return row; };
+  aoa[hdr] = pad(aoa[hdr] || []); aoa[hdr].push(...add);
+  for (const r of S.results) {
+    const row = pad(aoa[r.row + shift] || (aoa[r.row + shift] = []));
+    const how = r.type === 'code' ? `Rule: ${r.rule.label}` : r.type === 'manual' ? 'Process step' : `Model: ${S.ranWith?.model || ''}`;
+    const evid = (r.evidence || []).slice(0, 5).map(e => `${e.file}${e.loc ? ', ' + e.loc : ''}: ${norm(e.text)}`).join('\n').slice(0, 2000);
+    row.push(LABEL[eff(r)] + (r.override ? ' (reviewer)' : ''), how, r.reason, evid, r.note || '');
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = Array.from({ length: W + add.length }, (_, i) => ({ wch: i === c.itemCol ? 60 : i >= W ? [16, 24, 60, 70, 30][i - W] : 16 }));
+  const cnt = k => S.results.filter(r => eff(r) === k).length;
+  const sum = XLSX.utils.aoa_to_sheet([
+    ['Tickmark QA summary'], [],
+    ['Checklist', c.file], ['Checked on', (S.ranWith?.at || new Date()).toLocaleString()], ['Model', S.ranWith?.model || ''], ['Files checked', (S.ranWith?.files || []).join(', ')], [],
+    ['Result', 'Items'], ['Passed', cnt('pass')], ['Failed', cnt('fail')], ['Needs review', cnt('review')], ['Confirm yourself', cnt('manual')], ['Total', S.results.length]
+  ]);
+  sum['!cols'] = [{ wch: 18 }, { wch: 80 }];
+  const wb = XLSX.utils.book_new();
+  const sname = c.sheets[c.sheetIdx].name.slice(0, 31) || 'Checklist';
+  XLSX.utils.book_append_sheet(wb, ws, sname);
+  XLSX.utils.book_append_sheet(wb, sum, sname === 'QA summary' ? 'Summary' : 'QA summary');
+  XLSX.writeFile(wb, c.file.replace(/\.[^.]+$/, '') + '_QA.xlsx');
+}
+
+/* ---------- settings dialog ---------- */
+function setModelState(st) {
+  S.modelState = st;
+  const dot = $('#modelDot'), lab = $('#modelLabel');
+  dot.className = 'dot ' + (settings.provider === 'off' ? 'off' : st === 'ok' ? 'ok' : st === 'err' ? 'err' : '');
+  lab.textContent = settings.provider === 'off' ? 'Model off: rule checks only' : !settings.model ? 'Set up a model' : `${PRESETS[settings.provider].label}: ${settings.model}${st === 'err' ? ' (not reachable)' : ''}`;
+}
+function helpHTML(p) {
+  const origin = location.origin && location.origin !== 'null' ? location.origin : null;
+  const allow = origin ? origin : '*';
+  const fileNote = origin ? '' : '<p>You opened this page as a local file, so the allowed origin has to be <code>*</code>. Hosting it (for example on GitHub Pages) lets you allow just that address.</p>';
+  if (p === 'ollama') return `<ol>
+    <li>Install Ollama from ollama.com and pull an instruct model, for example:<pre>ollama pull qwen2.5:7b</pre>Bigger models (14B and up) make better judgment calls if your machine can run them.</li>
+    <li>Allow this page to call Ollama by setting <code>OLLAMA_ORIGINS</code>, then quit and reopen Ollama.
+      <br>Windows (PowerShell):<pre>setx OLLAMA_ORIGINS "${allow}"</pre>
+      macOS:<pre>launchctl setenv OLLAMA_ORIGINS "${allow}"</pre>
+      Linux (systemd): run <code>sudo systemctl edit ollama</code>, add the two lines below, then <code>sudo systemctl restart ollama</code><pre>[Service]\nEnvironment="OLLAMA_ORIGINS=${allow}"</pre></li>
+    <li>If the browser asks to let this site reach devices on your local network, allow it.</li></ol>${fileNote}`;
+  if (p === 'lmstudio') return `<ol><li>In LM Studio, load a model and start the local server from the Developer tab.</li><li>Turn on CORS in the server settings.</li><li>Keep the address as <code>http://localhost:1234/v1</code> and press Test connection.</li></ol>`;
+  if (p === 'llamacpp') return `<ol><li>Start the server with your GGUF model:<pre>llama-server -m your-model.gguf --port 8080</pre></li><li>Keep the address as <code>http://localhost:8080/v1</code> and press Test connection.</li></ol>`;
+  if (p === 'custom') return `<p>Any server with an OpenAI-style <code>/chat/completions</code> endpoint works, such as Jan, vLLM or LocalAI. Enter its base address ending in <code>/v1</code>, add a key if it needs one, and make sure it allows requests from ${origin ? `<code>${esc(origin)}</code>` : 'this page'}.</p><p>A cloud API also works this way, but then excerpts from your files leave your machine.</p>`;
+  return '<p>Rule checks still run. Judgment items are left for you to review.</p>';
+}
+function openSettings() {
+  const dlg = $('#settings');
+  $('#providerSeg').innerHTML = Object.entries(PRESETS).map(([k, p]) => `<label><input type="radio" name="prov" value="${k}"${settings.provider === k ? ' checked' : ''}><span>${esc(p.label)}</span></label>`).join('');
+  $('#urlIn').value = settings.url; $('#keyIn').value = settings.key; $('#modelIn').value = settings.model;
+  $('#budgetIn').value = settings.budget; $('#concIn').value = settings.conc; $('#ctxIn').value = settings.ctx;
+  syncProvider(settings.provider, false);
+  $('#setStatus').className = 'status'; $('#setStatus').textContent = 'Test the connection to load the models available on that server.';
+  dlg.showModal();
+}
+function syncProvider(p, resetUrl) {
+  const off = p === 'off';
+  $('#urlRow').hidden = off; $('#modelRow').hidden = off; $('#advRow').hidden = off; $('#setStatus').hidden = off;
+  $('#keyField').hidden = PRESETS[p].api !== 'openai';
+  $('#ctxIn').closest('.field').hidden = PRESETS[p].api !== 'ollama';
+  if (resetUrl && PRESETS[p].url) $('#urlIn').value = PRESETS[p].url;
+  $('#helpBody').innerHTML = helpHTML(p);
+  $('#helpBox').hidden = false;
+}
+async function testConnection() {
+  const prev = { ...settings };
+  settings.provider = $('#providerSeg input:checked')?.value || 'ollama';
+  settings.url = $('#urlIn').value; settings.key = $('#keyIn').value;
+  const st = $('#setStatus'); st.className = 'status'; st.textContent = 'Connecting…';
+  try {
+    const models = await listModels();
+    $('#modelList').innerHTML = models.map(m => `<option value="${esc(m)}">`).join('');
+    if (!$('#modelIn').value && models[0]) $('#modelIn').value = models[0];
+    st.className = 'status ok';
+    st.textContent = models.length ? `Connected. ${plural(models.length, 'model')} available: ${models.slice(0, 6).join(', ')}${models.length > 6 ? '…' : ''}` : 'Connected, but no models are installed on that server yet.';
+  } catch (e) {
+    st.className = 'status err';
+    st.textContent = `${e.message} Check that the server is running and allows requests from this page (see the steps below).`;
+    $('#helpBox').open = true;
+  } finally { Object.assign(settings, { provider: prev.provider, url: prev.url, key: prev.key }); }
+}
+function saveSettings() {
+  settings.provider = $('#providerSeg input:checked')?.value || settings.provider;
+  settings.url = $('#urlIn').value.trim(); settings.key = $('#keyIn').value; settings.model = $('#modelIn').value.trim();
+  settings.budget = Math.max(1500, Number($('#budgetIn').value) || 6000);
+  settings.conc = Math.min(6, Math.max(1, Number($('#concIn').value) || 1));
+  settings.ctx = Math.max(2048, Number($('#ctxIn').value) || 8192);
+  store.set('settings', settings);
+  setModelState('unknown'); renderPlan(); if (S.results.length) renderResults();
+  if (modelReady()) listModels().then(() => setModelState('ok')).catch(() => setModelState('err'));
+}
+
+/* ---------- events ---------- */
+function wireDrop(label, input, onFiles) {
+  input.addEventListener('change', () => { if (input.files.length) onFiles([...input.files]); input.value = ''; });
+  label.addEventListener('dragover', e => { e.preventDefault(); label.classList.add('over'); });
+  label.addEventListener('dragleave', () => label.classList.remove('over'));
+  label.addEventListener('drop', e => { e.preventDefault(); label.classList.remove('over'); const fs = [...(e.dataTransfer?.files || [])]; if (fs.length) onFiles(fs); });
+}
+function init() {
+  if (typeof XLSX === 'undefined' || typeof JSZip === 'undefined') { $('#libError').hidden = false; return; }
+  wireDrop($('#dropChecklist'), $('#checklistInput'), fs => loadChecklist(fs[0]));
+  wireDrop($('#dropFiles'), $('#filesInput'), fs => { S.results = []; renderResults(); fs.forEach(parseFile); });
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => e.preventDefault());
+  $('#fileList').addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (!b) return; S.docs = S.docs.filter(d => d.id !== b.dataset.rm); S.results = []; renderFiles(); renderPlan(); renderResults(); });
+  $('#runBtn').addEventListener('click', runAll);
+  $('#stopBtn').addEventListener('click', () => { S.stop = true; $('#ptext').textContent = 'Stopping after the current item…'; });
+  $('#dlBtn').addEventListener('click', exportXlsx);
+  $('#printBtn').addEventListener('click', () => window.print());
+  $('#chips').addEventListener('click', e => { const b = e.target.closest('[data-filter]'); if (!b) return; S.filter = b.dataset.filter; renderResults(); });
+  $('#ticksheet').addEventListener('click', e => {
+    const b = e.target.closest('[data-jump]'); if (!b) return;
+    const i = +b.dataset.jump; const r = S.results[i];
+    if (S.filter !== 'all' && eff(r) !== S.filter) S.filter = 'all';
+    S.open.add(i); renderResults();
+    const el = document.getElementById('item-' + i);
+    if (el) { el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); el.querySelector('.item-main')?.focus({ preventScroll: true }); }
+  });
+  $('#items').addEventListener('click', e => {
+    const t = e.target.closest('[data-toggle]');
+    if (t) { const i = +t.dataset.toggle; if (S.open.has(i)) S.open.delete(i); else S.open.add(i); const art = t.closest('.item'); art.querySelector('.idetail').hidden = !S.open.has(i); t.setAttribute('aria-expanded', S.open.has(i)); return; }
+    const rc = e.target.closest('[data-recheck]'); if (rc) recheck(+rc.dataset.recheck);
+  });
+  $('#items').addEventListener('change', e => { const s = e.target.closest('[data-ovr]'); if (s) { S.results[+s.dataset.ovr].override = s.value; renderResults(); } });
+  $('#items').addEventListener('input', e => { const n = e.target.closest('[data-note]'); if (n) S.results[+n.dataset.note].note = n.value; });
+  $('#modelBtn').addEventListener('click', openSettings);
+  $('#providerSeg').addEventListener('change', e => { if (e.target.name === 'prov') { syncProvider(e.target.value, true); $('#modelIn').value = ''; $('#modelList').innerHTML = ''; } });
+  $('#testBtn').addEventListener('click', testConnection);
+  $('#settings').addEventListener('close', () => { if ($('#settings').returnValue === 'save') saveSettings(); });
+  setModelState(S.modelState);
+  if (modelReady()) listModels().then(() => setModelState('ok')).catch(() => setModelState('err'));
+  renderAll();
+}
+init();
+})();
+</script>
+</body>
+</html>
