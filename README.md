@@ -69,6 +69,7 @@ Judgment checks need a model server running on your machine. Click **Set up a mo
 
 | Server | Default address | Notes |
 |---|---|---|
+| Sutradhar (DPA) | `https://sutradhar.decimalpointanalytics.com/api/v1` | DPA's hosted model; nothing to install. Paste your `sk-` key and click Test connection. Requires the Sutradhar server to allow `https://ajsims23.github.io` (CORS) |
 | LM Studio | `http://localhost:1234/v1` | Start the local server from the Developer tab and turn on CORS |
 | llama.cpp | `http://localhost:8080/v1` | `llama-server -m your-model.gguf --port 8080` |
 | Any OpenAI-compatible server | your base URL ending in `/v1` | Jan, vLLM, LocalAI and others; add an API key if the server needs one |

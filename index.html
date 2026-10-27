@@ -380,6 +380,7 @@ const PRESETS = {
   ollama:   { label: 'Ollama',                 url: 'http://localhost:11434',   api: 'ollama' },
   lmstudio: { label: 'LM Studio',              url: 'http://localhost:1234/v1', api: 'openai' },
   llamacpp: { label: 'llama.cpp server',       url: 'http://localhost:8080/v1', api: 'openai' },
+  sutradhar:{ label: 'Sutradhar (DPA)',        url: 'https://sutradhar.decimalpointanalytics.com/api/v1', api: 'sutradhar' },
   custom:   { label: 'Other (OpenAI-compatible)', url: '',                      api: 'openai' },
   off:      { label: 'Off: rule checks only',  url: '',                         api: 'off' }
 };
@@ -1117,6 +1118,12 @@ const api = () => PRESETS[settings.provider]?.api || 'openai';
 const base = () => String(settings.url || '').trim().replace(/\/+$/, '');
 const authHeaders = () => settings.key ? { Authorization: 'Bearer ' + settings.key } : {};
 async function listModels() {
+  if (api() === 'sutradhar') { // no model list: a one-line chat proves the key and the browser permission
+    if (!settings.key) throw new Error('Add your Sutradhar API key first.');
+    const a = await callModel([{ role: 'user', content: 'Reply with just: OK' }]);
+    if (!a) throw new Error('Sutradhar answered, but with no text.');
+    return ['sutradhar'];
+  }
   if (api() === 'ollama') { const r = await fetchT(base() + '/api/tags', {}, 8000); if (!r.ok) throw new Error(`Server answered ${r.status}.`); const j = await r.json(); return (j.models || []).map(m => m.name); }
   const r = await fetchT(base() + '/models', { headers: authHeaders() }, 8000); if (!r.ok) throw new Error(`Server answered ${r.status}.`); const j = await r.json(); return (j.data || []).map(m => m.id);
 }
@@ -1134,6 +1141,11 @@ async function callModel(messages) {
     }
     if (!r.ok) throw new Error(`Model answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const j = await r.json(); return j.message?.content || '';
+  }
+  if (api() === 'sutradhar') {
+    const r = await fetchT(base() + '/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ message: messages.map(m => m.content).join('\n\n') }) });
+    if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? 'Sutradhar rejected the API key.' : `Sutradhar answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    const j = await r.json(); return String(j.answer ?? j.response ?? j.message ?? '');
   }
   const r = await fetchT(base() + '/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ model: settings.model, messages, temperature: 0, stream: false }) });
   if (!r.ok) throw new Error(`Model answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
@@ -1466,6 +1478,7 @@ function helpHTML(p) {
     <li>If the browser asks to let this site reach devices on your local network, allow it.</li></ol>${fileNote}`;
   if (p === 'lmstudio') return `<ol><li>In LM Studio, load a model and start the local server from the Developer tab.</li><li>Turn on CORS in the server settings.</li><li>Keep the address as <code>http://localhost:1234/v1</code> and press Test connection.</li></ol>`;
   if (p === 'llamacpp') return `<ol><li>Start the server with your GGUF model:<pre>llama-server -m your-model.gguf --port 8080</pre></li><li>Keep the address as <code>http://localhost:8080/v1</code> and press Test connection.</li></ol>`;
+  if (p === 'sutradhar') return `<ol><li>Paste your Sutradhar API key (it starts with <code>sk-</code>) and keep the address as <code>https://sutradhar.decimalpointanalytics.com/api/v1</code>.</li><li>Press Test connection. It sends one short test message.</li></ol><p>If it says it couldn't reach Sutradhar, the Sutradhar server isn't yet allowing requests from ${origin ? `<code>${esc(origin)}</code>` : 'this page'}. Its team needs to add these response headers on <code>/api/v1/chat</code>, including for the <code>OPTIONS</code> preflight:</p><pre>Access-Control-Allow-Origin: ${esc(allow)}\nAccess-Control-Allow-Methods: POST, OPTIONS\nAccess-Control-Allow-Headers: Authorization, Content-Type</pre><p>Sutradhar runs on DPA's own servers, so excerpts go there rather than staying on this computer.</p>`;
   if (p === 'custom') return `<p>Any server with an OpenAI-style <code>/chat/completions</code> endpoint works, such as Jan, vLLM or LocalAI. Enter its base address ending in <code>/v1</code>, add a key if it needs one, and make sure it allows requests from ${origin ? `<code>${esc(origin)}</code>` : 'this page'}.</p><p>A cloud API also works this way, but then excerpts from your files leave your machine.</p>`;
   return '<p>Rule checks still run. Judgment items are left for you to review.</p>';
 }
@@ -1481,7 +1494,7 @@ function openSettings() {
 function syncProvider(p, resetUrl) {
   const off = p === 'off';
   $('#urlRow').hidden = off; $('#modelRow').hidden = off; $('#advRow').hidden = off; $('#setStatus').hidden = off;
-  $('#keyField').hidden = PRESETS[p].api !== 'openai';
+  $('#keyField').hidden = !['openai', 'sutradhar'].includes(PRESETS[p].api);
   $('#ctxIn').closest('.field').hidden = PRESETS[p].api !== 'ollama';
   if (resetUrl && PRESETS[p].url) $('#urlIn').value = PRESETS[p].url;
   $('#helpBody').innerHTML = helpHTML(p);
@@ -1507,6 +1520,7 @@ async function testConnection() {
 function saveSettings() {
   settings.provider = $('#providerSeg input:checked')?.value || settings.provider;
   settings.url = $('#urlIn').value.trim(); settings.key = $('#keyIn').value; settings.model = $('#modelIn').value.trim();
+  if (PRESETS[settings.provider]?.api === 'sutradhar' && !settings.model) settings.model = 'sutradhar';
   settings.budget = Math.max(1500, Number($('#budgetIn').value) || 6000);
   settings.conc = Math.min(6, Math.max(1, Number($('#concIn').value) || 1));
   settings.ctx = Math.max(2048, Number($('#ctxIn').value) || 8192);
