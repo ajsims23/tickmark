@@ -1055,21 +1055,38 @@ function retrieve(item, scope, budget) {
   const df = {}; q.forEach(w => { df[w] = chunks.filter(x => x.c._t.has(w)).length; });
   const N = chunks.length || 1;
   const scored = chunks.map((x, i) => ({ ...x, i, s: q.reduce((a, w) => a + (x.c._t.has(w) ? Math.log(1 + N / (df[w] || 1)) : 0), 0) }));
+  const clip = x => x.c.text.length > 1800 ? x.c.text.slice(0, 1800) + '…' : x.c.text;
+  // Small pack: send every chunk, in file order. The prompt is then identical from check to check,
+  // so the model can reuse what it already read instead of starting over each time.
+  const total = scored.reduce((a, x) => a + clip(x).length, 0);
+  if (total <= budget) return scored.map(x => ({ file: x.d.name, loc: x.c.loc, text: clip(x) }));
   let pick = scored.filter(x => x.s > 0).sort((a, b) => b.s - a.s || a.i - b.i);
   if (!pick.length) pick = scored.slice();
   const out = []; let used = 0;
   for (const x of pick) {
-    const text = x.c.text.length > 1800 ? x.c.text.slice(0, 1800) + '…' : x.c.text;
+    const text = clip(x);
     if (used + text.length > budget && out.length) break;
-    out.push({ file: x.d.name, loc: x.c.loc, text }); used += text.length;
+    out.push({ i: x.i, file: x.d.name, loc: x.c.loc, text }); used += text.length;
   }
-  return out;
+  return out.sort((a, b) => a.i - b.i).map(({ i, ...e }) => e);
 }
-const SYS = 'You review finished client deliverables against a QA checklist. You get one checklist item and excerpts from the files. Judge only from the excerpts and the file list. Reply with a single JSON object and nothing else.';
+// Everything that doesn't change between checks sits at the front of the prompt (system prompt, file list,
+// excerpts) and the checklist item comes last, so a local model can reuse its cache across checks.
+const SYS = `You review finished client deliverables against a QA checklist. You get excerpts from the files and then one checklist item. Judge only from the excerpts and the file list. Reply with a single JSON object and nothing else.
+
+Reply with JSON:
+{"verdict": "pass" | "fail" | "needs_review" | "manual", "reason": "one or two plain sentences", "quote": "exact words copied from one excerpt or the file list that show the result, or empty", "excerpt": number of that excerpt, or 0}
+
+Rules:
+- "pass" only when an excerpt clearly shows the item is met. Copy the words that show it into "quote".
+- "fail" only when an excerpt clearly shows it is not met. Copy the words that show it.
+- "needs_review" when the excerpts don't settle it, or when it needs arithmetic.
+- "manual" when the item is a process step (approval, sending, saving, sign-off) that file contents can't prove.
+- Never invent a quote. If you can't copy one, answer "needs_review".`;
 function buildPrompt(item, docs, ex) {
   const files = docs.map(d => `- ${d.name} (${KIND_LABEL[d.kind] || d.kind}${d.summary ? ', ' + d.summary : ''})`).join('\n');
   const exs = ex.map((e, i) => `[${i + 1}] ${e.file}, ${e.loc}\n${e.text}`).join('\n\n');
-  return `Checklist item: ${item.text}\nSection: ${item.category}\n\nFiles provided:\n${files}\n\nExcerpts:\n${exs || '(no text found)'}\n\nReply with JSON:\n{"verdict": "pass" | "fail" | "needs_review" | "manual", "reason": "one or two plain sentences", "quote": "exact words copied from one excerpt or the file list that show the result, or empty", "excerpt": number of that excerpt, or 0}\n\nRules:\n- "pass" only when an excerpt clearly shows the item is met. Copy the words that show it into "quote".\n- "fail" only when an excerpt clearly shows it is not met. Copy the words that show it.\n- "needs_review" when the excerpts don't settle it, or when it needs arithmetic.\n- "manual" when the item is a process step (approval, sending, saving, sign-off) that file contents can't prove.\n- Never invent a quote. If you can't copy one, answer "needs_review".`;
+  return `Files provided:\n${files}\n\nExcerpts:\n${exs || '(no text found)'}\n\nChecklist item: ${item.text}\nSection: ${item.category}`;
 }
 async function fetchT(url, opt = {}, ms = 180000) {
   const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), ms);
@@ -1084,9 +1101,18 @@ async function listModels() {
   if (api() === 'ollama') { const r = await fetchT(base() + '/api/tags', {}, 8000); if (!r.ok) throw new Error(`Server answered ${r.status}.`); const j = await r.json(); return (j.models || []).map(m => m.name); }
   const r = await fetchT(base() + '/models', { headers: authHeaders() }, 8000); if (!r.ok) throw new Error(`Server answered ${r.status}.`); const j = await r.json(); return (j.data || []).map(m => m.id);
 }
+let noThink = {}; // models that rejected the think flag
 async function callModel(messages) {
   if (api() === 'ollama') {
-    const r = await fetchT(base() + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: settings.model, messages, stream: false, format: 'json', options: { temperature: 0, num_ctx: Number(settings.ctx) || 8192 } }) });
+    // think:false stops reasoning models (qwen3.x, gemma4 and the like) from writing a long hidden chain
+    // of thought before every verdict; keep_alive holds the model in memory between checks and runs.
+    const send = withThink => fetchT(base() + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: settings.model, messages, stream: false, format: 'json', keep_alive: '30m', ...(withThink ? { think: false } : {}), options: { temperature: 0, num_ctx: Number(settings.ctx) || 8192 } }) });
+    let r = await send(!noThink[settings.model]);
+    if (!r.ok && !noThink[settings.model]) {
+      const t = await r.text();
+      if (/think/i.test(t)) { noThink[settings.model] = true; r = await send(false); }
+      else throw new Error(`Model answered ${r.status}: ${t.slice(0, 200)}`);
+    }
     if (!r.ok) throw new Error(`Model answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const j = await r.json(); return j.message?.content || '';
   }
